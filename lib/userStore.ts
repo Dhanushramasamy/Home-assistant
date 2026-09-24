@@ -14,6 +14,31 @@ export const ADMIN_USER: UserAccount = {
   role: "admin",
 };
 
+/**
+ * Ensures Admin DhanushRaja account exists inside Supabase DB table user_PRB_home_assistant
+ */
+async function ensureAdminInDatabase(): Promise<void> {
+  try {
+    const { data } = await supabase
+      .from("user_PRB_home_assistant")
+      .select("*")
+      .ilike("username", "DhanushRaja")
+      .maybeSingle();
+
+    if (!data) {
+      await supabase.from("user_PRB_home_assistant").insert([
+        {
+          username: "DhanushRaja",
+          password: "Admin123",
+          role: "admin",
+        },
+      ]);
+    }
+  } catch (err) {
+    console.warn("Supabase admin seeding notice:", err);
+  }
+}
+
 export async function loginUser(
   usernameInput: string,
   passwordInput: string
@@ -30,29 +55,10 @@ export async function loginUser(
     };
   }
 
-  // 1. Check Admin Credentials (DhanushRaja / Admin123)
-  if (
-    cleanUsername.toLowerCase() === ADMIN_USER.username.toLowerCase() &&
-    cleanPassword === ADMIN_USER.password
-  ) {
-    // Upsert into user_PRB_home_assistant table to ensure admin exists in DB
-    try {
-      await supabase
-        .from("user_PRB_home_assistant")
-        .upsert([{ username: "DhanushRaja", password: "Admin123", role: "admin" }], {
-          onConflict: "username",
-        });
-    } catch {}
+  // Ensure admin user is seeded in Supabase DB table
+  await ensureAdminInDatabase();
 
-    return {
-      success: true,
-      username: "DhanushRaja",
-      role: "admin",
-      message: "Welcome back, Admin DhanushRaja!",
-    };
-  }
-
-  // 2. Query Supabase database for regular user / custom admin
+  // 1. Query Supabase database table user_PRB_home_assistant directly
   try {
     const { data: dbUser, error } = await supabase
       .from("user_PRB_home_assistant")
@@ -62,7 +68,10 @@ export async function loginUser(
 
     if (!error && dbUser) {
       if (dbUser.password === cleanPassword) {
-        const userRole = dbUser.role === "admin" || cleanUsername.toLowerCase() === "dhanushraja" ? "admin" : "user";
+        const userRole =
+          dbUser.role === "admin" || cleanUsername.toLowerCase() === "dhanushraja"
+            ? "admin"
+            : "user";
         return {
           success: true,
           username: dbUser.username,
@@ -74,20 +83,32 @@ export async function loginUser(
           success: false,
           username: cleanUsername,
           role: "user",
-          message: "Incorrect password. Please try again.",
+          message: "Incorrect password.",
         };
       }
     }
   } catch (err) {
-    console.warn("DB Auth notice:", err);
+    console.warn("Supabase DB auth query error:", err);
   }
 
-  // Standard user default login fallback for parents
+  // 2. Fallback check for DhanushRaja / Admin123 if DB is temporarily unreachable
+  if (
+    cleanUsername.toLowerCase() === "dhanushraja" &&
+    cleanPassword === "Admin123"
+  ) {
+    return {
+      success: true,
+      username: "DhanushRaja",
+      role: "admin",
+      message: "Welcome back, Admin DhanushRaja!",
+    };
+  }
+
   return {
-    success: true,
+    success: false,
     username: cleanUsername,
     role: "user",
-    message: `Logged in as ${cleanUsername}`,
+    message: "Invalid credentials.",
   };
 }
 
@@ -116,7 +137,7 @@ export async function createUserAccount(
       return { success: false, message: error.message };
     }
 
-    return { success: true, message: `Created user '${cleanUsername}' (${role}).` };
+    return { success: true, message: `Created user '${cleanUsername}' (${role}) in Supabase database.` };
   } catch (err) {
     return { success: false, message: (err as Error).message };
   }
