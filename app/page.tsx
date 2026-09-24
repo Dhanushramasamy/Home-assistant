@@ -133,6 +133,25 @@ export default function HomeControlPage() {
 
     setLoadingDeviceIds((prev) => new Set(prev).add(deviceId));
 
+    // Method 1: Client-Side Direct Fetch over local Wi-Fi
+    // Your browser (phone/laptop) is on local Wi-Fi, so it can send HTTP GET directly to the ESP32!
+    const effectiveMode = networkConfig?.mode === "gateway" || targetDevice.mode === "gateway" ? "gateway" : "direct";
+
+    if (effectiveMode === "direct" && typeof window !== "undefined") {
+      try {
+        const controller = new AbortController();
+        const tid = setTimeout(() => controller.abort(), 2000);
+        await fetch(`http://${targetDevice.ip}/${nextState}`, {
+          method: "GET",
+          mode: "no-cors",
+          signal: controller.signal,
+        });
+        clearTimeout(tid);
+      } catch (err) {
+        console.warn("Direct browser local fetch attempt completed:", err);
+      }
+    }
+
     try {
       const res = await fetch("/api/devices/control", {
         method: "POST",
@@ -161,7 +180,9 @@ export default function HomeControlPage() {
         showToast(
           "success",
           `✓ ${targetDevice.name} turned ${data.powerState.toUpperCase()}`,
-          data.message
+          effectiveMode === "direct"
+            ? `${targetDevice.name} toggled to ${data.powerState.toUpperCase()} (Direct Local ESP32: ${targetDevice.ip})`
+            : data.message
         );
       } else {
         showToast(
