@@ -2,14 +2,15 @@ import fs from "fs/promises";
 import path from "path";
 import os from "os";
 import { Device } from "@/types";
+import { supabase } from "./supabaseClient";
 
-// On Vercel, process.cwd() is read-only (/var/task), but os.tmpdir() (/tmp) is writable
 const IS_VERCEL = process.env.VERCEL === "1" || process.env.NODE_ENV === "production";
 const DATA_DIR = IS_VERCEL
   ? path.join(os.tmpdir(), "home-control-data")
   : path.join(process.cwd(), "data");
 
 const DEVICES_FILE = path.join(DATA_DIR, "devices.json");
+const SUPABASE_DEVICE_TABLE = "device_PRB_home_assistant";
 
 export const INITIAL_DEVICES: Device[] = [
   {
@@ -62,36 +63,43 @@ export const INITIAL_DEVICES: Device[] = [
   },
 ];
 
-// In-memory fallback cache to ensure zero crash on read-only environments
 let inMemoryDevices: Device[] | null = null;
 
-async function ensureDataFileExists(): Promise<void> {
+export async function getDevices(username: string = "default_user"): Promise<Device[]> {
   try {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    try {
-      await fs.access(DEVICES_FILE);
-    } catch {
-      await fs.writeFile(
-        DEVICES_FILE,
-        JSON.stringify(INITIAL_DEVICES, null, 2),
-        "utf-8"
-      );
+    // 1. Attempt Supabase query from device_PRB_home_assistant table
+    const { data, error } = await supabase
+      .from(SUPABASE_DEVICE_TABLE)
+      .select("*");
+
+    if (!error && data && data.length > 0) {
+      const formatted: Device[] = data.map((d: any) => ({
+        id: d.id,
+        name: d.name,
+        room: d.room,
+        type: d.type || "light",
+        mode: d.mode || "direct",
+        ip: d.ip,
+        relay: d.relay || 1,
+        powerState: d.power_state || "off",
+        connectionState: d.connection_state || "connected",
+        lastSeen: d.updated_at || new Date().toISOString(),
+      }));
+      inMemoryDevices = formatted;
+      return formatted;
     }
   } catch (err) {
-    // If read-only or permission error, handle gracefully
-    console.warn("Notice: File system read-only or constrained. Using memory store.", err);
+    console.warn("Supabase fetch notice:", err);
   }
-}
 
-export async function getDevices(): Promise<Device[]> {
   if (inMemoryDevices !== null) {
     return inMemoryDevices;
   }
 
-  await ensureDataFileExists();
+  // Local file fallback
   try {
-    const data = await fs.readFile(DEVICES_FILE, "utf-8");
-    const parsed = JSON.parse(data) as Device[];
+    const fileData = await fs.readFile(DEVICES_FILE, "utf-8");
+    const parsed = JSON.parse(fileData) as Device[];
     inMemoryDevices = parsed;
     return parsed;
   } catch {
@@ -105,14 +113,35 @@ export async function getDeviceById(id: string): Promise<Device | null> {
   return devices.find((d) => d.id === id) || null;
 }
 
-export async function saveDevices(devices: Device[]): Promise<void> {
+export async function saveDevices(devices: Device[], username: string = "default_user"): Promise<void> {
   inMemoryDevices = devices;
+
   try {
-    await ensureDataFileExists();
+    // Sync to Supabase device_PRB_home_assistant table
+    const upsertRows = devices.map((d) => ({
+      id: d.id,
+      username,
+      name: d.name,
+      room: d.room,
+      type: d.type,
+      mode: d.mode,
+      ip: d.ip,
+      relay: d.relay,
+      power_state: d.powerState,
+      connection_state: d.connectionState,
+      updated_at: new Date().toISOString(),
+    }));
+
+    await supabase.from(SUPABASE_DEVICE_TABLE).upsert(upsertRows, { onConflict: "id" });
+  } catch (err) {
+    console.warn("Supabase sync notice:", err);
+  }
+
+  try {
+    await fs.mkdir(DATA_DIR, { recursive: true });
     await fs.writeFile(DEVICES_FILE, JSON.stringify(devices, null, 2), "utf-8");
   } catch (err) {
-    // Silently handle EROFS or read-only filesystem on Vercel lambda
-    console.warn("Notice: Saved devices in memory (File system read-only on serverless).", err);
+    console.warn("Local file save notice:", err);
   }
 }
 
@@ -120,9 +149,10 @@ export async function addDevice(
   newDeviceData: Omit<Device, "id" | "powerState" | "connectionState"> & {
     powerState?: Device["powerState"];
     connectionState?: Device["connectionState"];
-  }
+  },
+  username: string = "default_user"
 ): Promise<Device> {
-  const devices = await getDevices();
+  const devices = await getDevices(username);
   
   const baseId = newDeviceData.name
     .toLowerCase()
@@ -144,15 +174,16 @@ export async function addDevice(
   };
 
   devices.push(device);
-  await saveDevices(devices);
+  await saveDevices(devices, username);
   return device;
 }
 
 export async function updateDevice(
   id: string,
-  updates: Partial<Device>
+  updates: Partial<Device>,
+  username: string = "default_user"
 ): Promise<Device | null> {
-  const devices = await getDevices();
+  const devices = await getDevices(username);
   const index = devices.findIndex((d) => d.id === id);
   if (index === -1) return null;
 
@@ -163,15 +194,22 @@ export async function updateDevice(
   };
 
   devices[index] = updated;
-  await saveDevices(devices);
+  await saveDevices(devices, username);
   return updated;
 }
 
-export async function deleteDevice(id: string): Promise<boolean> {
-  const devices = await getDevices();
+export async function deleteDevice(id: string, username: string = "default_user"): Promise<boolean> {
+  const devices = await getDevices(username);
   const filtered = devices.filter((d) => d.id !== id);
   if (filtered.length === devices.length) return false;
-  await saveDevices(filtered);
+
+  try {
+    await supabase.from(SUPABASE_DEVICE_TABLE).delete().eq("id", id);
+  } catch (err) {
+    console.warn("Supabase delete notice:", err);
+  }
+
+  await saveDevices(filtered, username);
   return true;
 }
 
@@ -180,7 +218,10 @@ export async function resetDevicesToDefault(): Promise<Device[]> {
   return INITIAL_DEVICES;
 }
 
-export async function clearAllDevices(): Promise<Device[]> {
-  await saveDevices([]);
+export async function clearAllDevices(username: string = "default_user"): Promise<Device[]> {
+  try {
+    await supabase.from(SUPABASE_DEVICE_TABLE).delete().neq("id", "none");
+  } catch {}
+  await saveDevices([], username);
   return [];
 }
