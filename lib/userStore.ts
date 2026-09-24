@@ -100,7 +100,7 @@ export async function loginUser(
       success: true,
       username: "DhanushRaja",
       role: "admin",
-      message: "Welcome back, Admin DhanushRaja!",
+      message: "Welcome back!",
     };
   }
 

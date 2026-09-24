@@ -45,11 +45,10 @@ export default function HomeControlPage() {
         try {
           setUserSession(JSON.parse(savedUser));
         } catch {
-          setUserSession({ username: "DhanushRaja", role: "admin" });
+          setUserSession(null);
         }
       } else {
-        // Initial default session
-        setUserSession({ username: "DhanushRaja", role: "admin" });
+        setUserSession(null);
       }
     }
   }, []);
