@@ -12,6 +12,7 @@ import { Sliders, Wifi, Cpu, Server, Wrench } from "lucide-react";
 interface SettingsViewProps {
   devices: Device[];
   networkConfig: NetworkConfig | null;
+  currentUserRole?: "admin" | "user";
   onSaveNetworkConfig: (config: Partial<NetworkConfig>) => Promise<void>;
   onOpenAddModal: () => void;
   onEditDevice: (device: Device) => void;
@@ -25,6 +26,7 @@ interface SettingsViewProps {
 export const SettingsView: React.FC<SettingsViewProps> = ({
   devices,
   networkConfig,
+  currentUserRole = "admin",
   onSaveNetworkConfig,
   onOpenAddModal,
   onEditDevice,
@@ -85,7 +87,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       <div className="mt-4">
-        {activeSection === "general" && <GeneralSettings />}
+        {activeSection === "general" && <GeneralSettings currentUserRole={currentUserRole} />}
 
         {activeSection === "network" && (
           <NetworkSettings

@@ -8,6 +8,7 @@ import { EditDeviceModal } from "@/components/EditDeviceModal";
 import { ConnectionTestModal } from "@/components/ConnectionTestModal";
 import { ToastContainer } from "@/components/ToastContainer";
 import { SettingsView } from "@/components/settings/SettingsView";
+import { LoginModal } from "@/components/LoginModal";
 import {
   Cpu,
   Plus,
@@ -21,6 +22,9 @@ import {
   Wifi,
   Server,
   Trash2,
+  ShieldCheck,
+  User,
+  LogOut,
 } from "lucide-react";
 
 export default function HomeControlPage() {
@@ -29,6 +33,43 @@ export default function HomeControlPage() {
   const [networkConfig, setNetworkConfig] = useState<NetworkConfig | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [showSearch, setShowSearch] = useState<boolean>(false);
+
+  // User Auth Session State
+  const [userSession, setUserSession] = useState<{ username: string; role: "admin" | "user" }>({
+    username: "DhanushRaja",
+    role: "admin",
+  });
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedUser = localStorage.getItem("home_control_user");
+      if (savedUser) {
+        try {
+          setUserSession(JSON.parse(savedUser));
+        } catch {}
+      }
+    }
+  }, []);
+
+  const handleLoginSuccess = (username: string, role: "admin" | "user") => {
+    const session = { username, role };
+    setUserSession(session);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("home_control_user", JSON.stringify(session));
+    }
+    showToast("success", `Signed in as ${username}`, role === "admin" ? "Admin Mode active" : "Simple Parent View active");
+  };
+
+  const handleLogout = () => {
+    const defaultUser = { username: "Parent", role: "user" as const };
+    setUserSession(defaultUser);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("home_control_user", JSON.stringify(defaultUser));
+    }
+    setActiveTab("All");
+    showToast("info", "Signed out", "Switched to Simple Parent View");
+  };
 
   // Loading & Modal states
   const [isLoadingApp, setIsLoadingApp] = useState(true);
@@ -341,9 +382,27 @@ export default function HomeControlPage() {
 
             {/* Quick Actions */}
             <div className="flex items-center space-x-1.5">
+              {/* User Role Pill & Switch Button */}
+              <button
+                onClick={() => setIsLoginModalOpen(true)}
+                className={`flex items-center space-x-1 px-2.5 py-1 rounded-xl text-xs font-semibold border transition-all ${
+                  userSession.role === "admin"
+                    ? "bg-purple-50 text-purple-800 border-purple-200 hover:bg-purple-100"
+                    : "bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100"
+                }`}
+                title="Switch User / Login as Admin DhanushRaja"
+              >
+                {userSession.role === "admin" ? (
+                  <ShieldCheck className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                ) : (
+                  <User className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                )}
+                <span>{userSession.username}</span>
+              </button>
+
               <button
                 onClick={() => setShowSearch(!showSearch)}
-                className={`p-2 rounded-xl border transition-colors ${
+                className={`p-1.5 sm:p-2 rounded-xl border transition-colors ${
                   showSearch ? "bg-teal-50 border-teal-300 text-teal-700" : "bg-slate-100 border-slate-200 text-slate-600"
                 }`}
                 title="Search Devices"
@@ -351,13 +410,16 @@ export default function HomeControlPage() {
                 <Search className="w-4 h-4" />
               </button>
 
-              <button
-                onClick={() => setIsAddModalOpen(true)}
-                className="flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs shadow-2xs transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-                <span className="hidden sm:inline">Add</span>
-              </button>
+              {/* + Add Button only visible for Admin */}
+              {userSession.role === "admin" && (
+                <button
+                  onClick={() => setIsAddModalOpen(true)}
+                  className="flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs shadow-2xs transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span className="hidden sm:inline">Add</span>
+                </button>
+              )}
             </div>
 
           </div>
@@ -425,18 +487,20 @@ export default function HomeControlPage() {
               );
             })}
 
-            {/* Settings Tab */}
-            <button
-              onClick={() => setActiveTab("settings")}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border ml-auto ${
-                activeTab === "settings"
-                  ? "bg-slate-900 text-white border-slate-900 shadow-2xs"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200 border-slate-200/80"
-              }`}
-            >
-              <Settings className="w-3.5 h-3.5" />
-              <span>Settings</span>
-            </button>
+            {/* Settings Tab (Only visible for Admin DhanushRaja) */}
+            {userSession.role === "admin" && (
+              <button
+                onClick={() => setActiveTab("settings")}
+                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border ml-auto ${
+                  activeTab === "settings"
+                    ? "bg-slate-900 text-white border-slate-900 shadow-2xs"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200 border-slate-200/80"
+                }`}
+              >
+                <Settings className="w-3.5 h-3.5" />
+                <span>Settings</span>
+              </button>
+            )}
 
           </div>
 
@@ -456,6 +520,7 @@ export default function HomeControlPage() {
           <SettingsView
             devices={devices}
             networkConfig={networkConfig}
+            currentUserRole={userSession.role}
             onSaveNetworkConfig={async (config) => {
               const res = await fetch("/api/network", {
                 method: "PUT",
@@ -492,13 +557,15 @@ export default function HomeControlPage() {
                 </p>
 
                 <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => setIsAddModalOpen(true)}
-                    className="flex items-center space-x-1 px-3.5 py-2 rounded-xl bg-teal-600 text-white font-semibold text-xs shadow-2xs"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Add Real Device</span>
-                  </button>
+                  {userSession.role === "admin" && (
+                    <button
+                      onClick={() => setIsAddModalOpen(true)}
+                      className="flex items-center space-x-1 px-3.5 py-2 rounded-xl bg-teal-600 text-white font-semibold text-xs shadow-2xs"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Add Real Device</span>
+                    </button>
+                  )}
 
                   {devices.length === 0 && (
                     <button
@@ -538,6 +605,12 @@ export default function HomeControlPage() {
       </footer>
 
       {/* Modals */}
+      <LoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
+        onLoginSuccess={handleLoginSuccess}
+      />
+
       <AddDeviceModal
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
