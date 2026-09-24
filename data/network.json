@@ -1,0 +1,9 @@
+{
+  "name": "Home WiFi",
+  "subnet": "192.168.1.0/24",
+  "gateway": "192.168.1.1",
+  "mode": "direct",
+  "gatewayIp": "192.168.1.100",
+  "gatewayPort": 5000,
+  "timeoutMs": 4000
+}

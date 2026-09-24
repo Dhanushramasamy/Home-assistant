@@ -1,0 +1,14 @@
+[
+  {
+    "name": "Bedroom light",
+    "room": "Bedroom",
+    "type": "light",
+    "mode": "direct",
+    "ip": "192.168.1.201",
+    "relay": 1,
+    "powerState": "off",
+    "connectionState": "connected",
+    "id": "bedroom-light",
+    "lastSeen": "2026-09-24T13:38:24.781Z"
+  }
+]

@@ -1,0 +1,45 @@
+import { NextResponse } from "next/server";
+import { getDevices, addDevice } from "@/lib/deviceStore";
+
+export async function GET() {
+  try {
+    const devices = await getDevices();
+    return NextResponse.json(devices);
+  } catch (error) {
+    return NextResponse.json(
+      { error: "Failed to fetch devices", details: (error as Error).message },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    
+    if (!body.name || !body.room || !body.ip) {
+      return NextResponse.json(
+        { error: "Device Name, Room, and IP address are required." },
+        { status: 400 }
+      );
+    }
+
+    const newDevice = await addDevice({
+      name: body.name,
+      room: body.room,
+      type: body.type || "light",
+      mode: body.mode || "direct",
+      ip: body.ip,
+      relay: Number(body.relay) || 1,
+      powerState: body.powerState || "off",
+      connectionState: body.connectionState || "connected",
+    });
+
+    return NextResponse.json(newDevice, { status: 201 });
+  } catch (error) {
+    return NextResponse.json(
+      { error: "Failed to create device", details: (error as Error).message },
+      { status: 500 }
+    );
+  }
+}
