@@ -1,6 +1,7 @@
 [
   {
-    "name": "Bedroom light",
+    "id": "kitchen-light",
+    "name": "Bedroom Light",
     "room": "Bedroom",
     "type": "light",
     "mode": "direct",
@@ -8,7 +9,6 @@
     "relay": 1,
     "powerState": "off",
     "connectionState": "connected",
-    "id": "bedroom-light",
-    "lastSeen": "2026-09-24T15:26:49.827Z"
+    "lastSeen": "2026-09-24T16:14:47.961Z"
   }
 ]

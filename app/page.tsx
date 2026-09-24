@@ -9,6 +9,7 @@ import { ConnectionTestModal } from "@/components/ConnectionTestModal";
 import { ToastContainer } from "@/components/ToastContainer";
 import { SettingsView } from "@/components/settings/SettingsView";
 import { LoginModal } from "@/components/LoginModal";
+import { LoginPage } from "@/components/LoginPage";
 import {
   Cpu,
   Plus,
@@ -350,6 +351,10 @@ export default function HomeControlPage() {
 
     return matchesTab && matchesSearch;
   });
+
+  if (!userSession) {
+    return <LoginPage onLoginSuccess={handleLoginSuccess} />;
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
