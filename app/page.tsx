@@ -124,86 +124,53 @@ export default function HomeControlPage() {
     return acc;
   }, {});
 
-  // Handle Power Toggle
+  // Handle Power Toggle (0ms Instant Optimistic UI + Direct Local Fetch)
   const handleTogglePower = async (deviceId: string, currentPower: PowerState) => {
     const targetDevice = devices.find((d) => d.id === deviceId);
     if (!targetDevice) return;
 
     const nextState: PowerState = currentPower === "on" ? "off" : "on";
 
-    setLoadingDeviceIds((prev) => new Set(prev).add(deviceId));
+    // 1. INSTANT OPTIMISTIC UI UPDATE (0ms delay!)
+    updateDevicesState((prev) =>
+      prev.map((d) =>
+        d.id === deviceId
+          ? {
+              ...d,
+              powerState: nextState,
+              connectionState: "connected",
+            }
+          : d
+      )
+    );
 
-    // Method 1: Client-Side Direct Fetch over local Wi-Fi
-    // Your browser (phone/laptop) is on local Wi-Fi, so it can send HTTP GET directly to the ESP32!
+    showToast(
+      "success",
+      `✓ ${targetDevice.name} turned ${nextState.toUpperCase()}`,
+      `${targetDevice.name} switched to ${nextState.toUpperCase()}`
+    );
+
+    // 2. Direct Local Wi-Fi Browser Fetch (Fires concurrently to physical ESP32!)
     const effectiveMode = networkConfig?.mode === "gateway" || targetDevice.mode === "gateway" ? "gateway" : "direct";
 
     if (effectiveMode === "direct" && typeof window !== "undefined") {
-      try {
-        const controller = new AbortController();
-        const tid = setTimeout(() => controller.abort(), 2000);
-        await fetch(`http://${targetDevice.ip}/${nextState}`, {
-          method: "GET",
-          mode: "no-cors",
-          signal: controller.signal,
-        });
-        clearTimeout(tid);
-      } catch (err) {
-        console.warn("Direct browser local fetch attempt completed:", err);
-      }
-    }
-
-    try {
-      const res = await fetch("/api/devices/control", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          deviceId,
-          action: nextState,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (data.success) {
-        updateDevicesState((prev) =>
-          prev.map((d) =>
-            d.id === deviceId
-              ? {
-                  ...d,
-                  powerState: data.powerState,
-                  connectionState: data.connectionState,
-                }
-              : d
-          )
-        );
-
-        showToast(
-          "success",
-          `✓ ${targetDevice.name} turned ${data.powerState.toUpperCase()}`,
-          effectiveMode === "direct"
-            ? `${targetDevice.name} toggled to ${data.powerState.toUpperCase()} (Direct Local ESP32: ${targetDevice.ip})`
-            : data.message
-        );
-      } else {
-        showToast(
-          "error",
-          `✕ ${targetDevice.name} could not be reached`,
-          data.message || "Failed to communicate with device endpoint."
-        );
-      }
-    } catch (err) {
-      showToast(
-        "error",
-        `✕ Error controlling ${targetDevice.name}`,
-        (err as Error).message
-      );
-    } finally {
-      setLoadingDeviceIds((prev) => {
-        const next = new Set(prev);
-        next.delete(deviceId);
-        return next;
+      fetch(`http://${targetDevice.ip}/${nextState}`, {
+        method: "GET",
+        mode: "no-cors",
+      }).catch((err) => {
+        console.warn("Direct local browser request completed:", err);
       });
     }
+
+    // 3. Non-blocking server state sync
+    fetch("/api/devices/control", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        deviceId,
+        action: nextState,
+      }),
+    }).catch(() => {});
   };
 
   // Handle Connection Test

@@ -89,28 +89,28 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden text-slate-100">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+      <div className="relative w-full max-w-lg max-h-[90vh] flex flex-col bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden text-slate-800">
         
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-slate-800 bg-slate-950/50">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-100 bg-slate-50/50 shrink-0">
           <div>
-            <h3 className="text-lg font-black text-white">Edit Device Configuration</h3>
-            <p className="text-xs text-slate-400">Modify device parameters and IP address</p>
+            <h3 className="text-base font-bold text-slate-900">Edit Device</h3>
+            <p className="text-xs text-slate-500">Modify device parameters and IP address</p>
           </div>
           <button
             onClick={onClose}
-            className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Body */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 overflow-y-auto">
           
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
               Device Name
             </label>
             <input
@@ -118,13 +118,13 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:border-cyan-500"
+              className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:border-teal-500"
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Room
               </label>
               <input
@@ -132,18 +132,18 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
                 required
                 value={room}
                 onChange={(e) => setRoom(e.target.value)}
-                className="w-full px-3 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:border-cyan-500"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-teal-500"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Relay Number
               </label>
               <select
                 value={relay}
                 onChange={(e) => setRelay(Number(e.target.value))}
-                className="w-full px-3 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:border-cyan-500"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-teal-500"
               >
                 <option value={1}>Relay 1</option>
                 <option value={2}>Relay 2</option>
@@ -154,7 +154,7 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
               Device Type
             </label>
             <div className="grid grid-cols-4 gap-2">
@@ -171,14 +171,14 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
                     key={item.id}
                     type="button"
                     onClick={() => setType(item.id as DeviceType)}
-                    className={`flex flex-col items-center justify-center p-3 rounded-2xl border transition-all ${
+                    className={`flex flex-col items-center justify-center p-2 sm:p-2.5 rounded-xl border transition-all ${
                       isSelected
-                        ? "bg-cyan-500/15 border-cyan-500 text-cyan-400 font-bold"
-                        : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white"
+                        ? "bg-teal-50 border-teal-500 text-teal-700 font-bold"
+                        : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
                     }`}
                   >
-                    <Icon className="w-5 h-5 mb-1" />
-                    <span className="text-xs">{item.label}</span>
+                    <Icon className="w-4 h-4 mb-1" />
+                    <span className="text-[11px] sm:text-xs">{item.label}</span>
                   </button>
                 );
               })}
@@ -186,104 +186,101 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
               Communication Mode
             </label>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => setMode("direct")}
-                className={`p-3 rounded-2xl border text-left transition-all ${
+                className={`p-2.5 rounded-xl border text-left transition-all ${
                   mode === "direct"
-                    ? "bg-cyan-500/15 border-cyan-500 text-cyan-300 font-semibold"
-                    : "bg-slate-950 border-slate-800 text-slate-400"
+                    ? "bg-sky-50 border-sky-400 text-sky-800 font-semibold"
+                    : "bg-slate-50 border-slate-200 text-slate-600"
                 }`}
               >
-                <div className="text-xs font-bold text-white">Direct ESP32</div>
-                <div className="text-[11px] text-slate-400">Direct HTTP GET</div>
+                <div className="text-xs font-bold">Direct ESP32</div>
+                <div className="text-[10px] sm:text-[11px] text-slate-500">Direct HTTP</div>
               </button>
 
               <button
                 type="button"
                 onClick={() => setMode("gateway")}
-                className={`p-3 rounded-2xl border text-left transition-all ${
+                className={`p-2.5 rounded-xl border text-left transition-all ${
                   mode === "gateway"
-                    ? "bg-violet-500/15 border-violet-500 text-violet-300 font-semibold"
-                    : "bg-slate-950 border-slate-800 text-slate-400"
+                    ? "bg-purple-50 border-purple-400 text-purple-800 font-semibold"
+                    : "bg-slate-50 border-slate-200 text-slate-600"
                 }`}
               >
-                <div className="text-xs font-bold text-white">Raspberry Pi Gateway</div>
-                <div className="text-[11px] text-slate-400">Pi 5 Router engine</div>
+                <div className="text-xs font-bold">Pi Gateway</div>
+                <div className="text-[10px] sm:text-[11px] text-slate-500">Central Pi 5</div>
               </button>
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-              ESP32 Local Address
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              ESP32 Local IP
             </label>
 
-            <div className="flex items-center space-x-2 bg-slate-950 p-2.5 rounded-2xl border border-slate-800">
+            <div className="flex items-center justify-between space-x-1 sm:space-x-1.5 bg-slate-50 p-2 rounded-xl border border-slate-200">
               <input
                 type="text"
                 value={octets[0]}
                 onChange={(e) => handleOctetChange(0, e.target.value)}
-                className="w-14 text-center py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-sm font-mono text-cyan-400 font-bold focus:outline-none focus:border-cyan-500"
+                className="w-full text-center py-1 bg-white border border-slate-200 rounded-lg text-xs font-mono text-teal-700 font-bold focus:outline-none focus:border-teal-500"
               />
-              <span className="text-slate-600 font-bold">.</span>
+              <span className="text-slate-400 font-bold">.</span>
               <input
                 type="text"
                 value={octets[1]}
                 onChange={(e) => handleOctetChange(1, e.target.value)}
-                className="w-14 text-center py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-sm font-mono text-cyan-400 font-bold focus:outline-none focus:border-cyan-500"
+                className="w-full text-center py-1 bg-white border border-slate-200 rounded-lg text-xs font-mono text-teal-700 font-bold focus:outline-none focus:border-teal-500"
               />
-              <span className="text-slate-600 font-bold">.</span>
+              <span className="text-slate-400 font-bold">.</span>
               <input
                 type="text"
                 value={octets[2]}
                 onChange={(e) => handleOctetChange(2, e.target.value)}
-                className="w-14 text-center py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-sm font-mono text-cyan-400 font-bold focus:outline-none focus:border-cyan-500"
+                className="w-full text-center py-1 bg-white border border-slate-200 rounded-lg text-xs font-mono text-teal-700 font-bold focus:outline-none focus:border-teal-500"
               />
-              <span className="text-slate-600 font-bold">.</span>
+              <span className="text-slate-400 font-bold">.</span>
               <input
                 type="text"
                 value={octets[3]}
                 onChange={(e) => handleOctetChange(3, e.target.value)}
-                className="w-14 text-center py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-sm font-mono text-cyan-400 font-bold focus:outline-none focus:border-cyan-500"
+                className="w-full text-center py-1 bg-white border border-slate-200 rounded-lg text-xs font-mono text-teal-700 font-bold focus:outline-none focus:border-teal-500"
               />
             </div>
 
-            <div className="mt-2 space-y-1">
-              <p className="text-[11px] text-slate-400">
-                This is the local IP address assigned to this ESP32.
-              </p>
+            <div className="mt-1.5">
               {validation.status === "success" && (
-                <p className="text-xs text-emerald-400 font-medium flex items-center">
-                  <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                <p className="text-[11px] sm:text-xs text-emerald-700 font-medium flex items-center">
+                  <CheckCircle2 className="w-3.5 h-3.5 mr-1 shrink-0" />
                   {validation.message}
                 </p>
               )}
               {validation.status === "warning" && (
-                <p className="text-xs text-amber-400 font-medium flex items-center">
-                  <AlertTriangle className="w-3.5 h-3.5 mr-1" />
+                <p className="text-[11px] sm:text-xs text-amber-700 font-medium flex items-center">
+                  <AlertTriangle className="w-3.5 h-3.5 mr-1 shrink-0" />
                   {validation.message}
                 </p>
               )}
             </div>
           </div>
 
-          <div className="pt-2 flex items-center justify-end space-x-3">
+          <div className="pt-2 flex items-center justify-end space-x-2 border-t border-slate-100 shrink-0">
             <button
               type="button"
               onClick={onClose}
-              className="px-5 py-2.5 rounded-xl border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800 text-sm font-semibold transition-colors"
+              className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 text-xs font-semibold"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting || !name.trim()}
-              className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-sm shadow-lg shadow-cyan-500/20 active:scale-95 transition-all disabled:opacity-50"
+              className="px-5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-2xs active:scale-95 transition-all disabled:opacity-50"
             >
               {isSubmitting ? "Saving..." : "Update Device"}
             </button>
