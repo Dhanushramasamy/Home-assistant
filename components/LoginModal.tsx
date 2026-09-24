@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { loginUser } from "@/lib/userStore";
-import { Cpu, ShieldCheck, Lock, User, KeyRound, AlertCircle } from "lucide-react";
+import { ShieldCheck, User, KeyRound, AlertCircle } from "lucide-react";
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -52,8 +52,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
             <ShieldCheck className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="text-base font-bold text-slate-900">Home Control Login</h3>
-            <p className="text-xs text-slate-500">Sign in for Admin or User access</p>
+            <h3 className="text-base font-bold text-slate-900">Account Sign In</h3>
+            <p className="text-xs text-slate-500">Sign in with your username and password</p>
           </div>
         </div>
 
@@ -78,7 +78,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 required
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="e.g. DhanushRaja or Parent"
+                placeholder="Enter username"
                 className="w-full pl-9 pr-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-teal-500"
               />
             </div>

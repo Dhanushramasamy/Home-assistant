@@ -35,10 +35,7 @@ export default function HomeControlPage() {
   const [showSearch, setShowSearch] = useState<boolean>(false);
 
   // User Auth Session State
-  const [userSession, setUserSession] = useState<{ username: string; role: "admin" | "user" }>({
-    username: "DhanushRaja",
-    role: "admin",
-  });
+  const [userSession, setUserSession] = useState<{ username: string; role: "admin" | "user" } | null>(null);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
 
   useEffect(() => {
@@ -47,7 +44,12 @@ export default function HomeControlPage() {
       if (savedUser) {
         try {
           setUserSession(JSON.parse(savedUser));
-        } catch {}
+        } catch {
+          setUserSession({ username: "DhanushRaja", role: "admin" });
+        }
+      } else {
+        // Initial default session
+        setUserSession({ username: "DhanushRaja", role: "admin" });
       }
     }
   }, []);
@@ -58,17 +60,16 @@ export default function HomeControlPage() {
     if (typeof window !== "undefined") {
       localStorage.setItem("home_control_user", JSON.stringify(session));
     }
-    showToast("success", `Signed in as ${username}`, role === "admin" ? "Admin Mode active" : "Simple Parent View active");
+    showToast("success", `Signed in as ${username}`, role === "admin" ? "Admin Access Granted" : "Standard User Access");
   };
 
   const handleLogout = () => {
-    const defaultUser = { username: "Parent", role: "user" as const };
-    setUserSession(defaultUser);
+    setUserSession(null);
     if (typeof window !== "undefined") {
-      localStorage.setItem("home_control_user", JSON.stringify(defaultUser));
+      localStorage.removeItem("home_control_user");
     }
     setActiveTab("All");
-    showToast("info", "Signed out", "Switched to Simple Parent View");
+    showToast("info", "Signed out successfully");
   };
 
   // Loading & Modal states
@@ -382,23 +383,43 @@ export default function HomeControlPage() {
 
             {/* Quick Actions */}
             <div className="flex items-center space-x-1.5">
-              {/* User Role Pill & Switch Button */}
-              <button
-                onClick={() => setIsLoginModalOpen(true)}
-                className={`flex items-center space-x-1 px-2.5 py-1 rounded-xl text-xs font-semibold border transition-all ${
-                  userSession.role === "admin"
-                    ? "bg-purple-50 text-purple-800 border-purple-200 hover:bg-purple-100"
-                    : "bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100"
-                }`}
-                title="Switch User / Login as Admin DhanushRaja"
-              >
-                {userSession.role === "admin" ? (
-                  <ShieldCheck className="w-3.5 h-3.5 text-purple-600 shrink-0" />
-                ) : (
-                  <User className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                )}
-                <span>{userSession.username}</span>
-              </button>
+              {/* User Account Button */}
+              {userSession ? (
+                <div className="flex items-center space-x-1 sm:space-x-1.5">
+                  <button
+                    onClick={() => setIsLoginModalOpen(true)}
+                    className={`flex items-center space-x-1.5 px-2.5 sm:px-3 py-1 rounded-xl text-xs font-semibold border transition-all ${
+                      userSession.role === "admin"
+                        ? "bg-purple-50 text-purple-800 border-purple-200 hover:bg-purple-100"
+                        : "bg-teal-50 text-teal-800 border-teal-200 hover:bg-teal-100"
+                    }`}
+                    title="Click to Switch Account"
+                  >
+                    {userSession.role === "admin" ? (
+                      <ShieldCheck className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                    ) : (
+                      <User className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                    )}
+                    <span className="font-bold">{userSession.username}</span>
+                  </button>
+
+                  <button
+                    onClick={handleLogout}
+                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"
+                    title="Sign Out"
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setIsLoginModalOpen(true)}
+                  className="flex items-center space-x-1.5 px-3 py-1 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs shadow-2xs transition-colors"
+                >
+                  <User className="w-3.5 h-3.5" />
+                  <span>Sign In</span>
+                </button>
+              )}
 
               <button
                 onClick={() => setShowSearch(!showSearch)}
@@ -411,7 +432,7 @@ export default function HomeControlPage() {
               </button>
 
               {/* + Add Button only visible for Admin */}
-              {userSession.role === "admin" && (
+              {userSession?.role === "admin" && (
                 <button
                   onClick={() => setIsAddModalOpen(true)}
                   className="flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs shadow-2xs transition-colors"
@@ -487,8 +508,8 @@ export default function HomeControlPage() {
               );
             })}
 
-            {/* Settings Tab (Only visible for Admin DhanushRaja) */}
-            {userSession.role === "admin" && (
+            {/* Settings Tab (Only visible for Admin) */}
+            {userSession?.role === "admin" && (
               <button
                 onClick={() => setActiveTab("settings")}
                 className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border ml-auto ${
@@ -515,7 +536,7 @@ export default function HomeControlPage() {
             <RefreshCw className="w-6 h-6 text-teal-600 animate-spin" />
             <p className="text-xs text-slate-500">Loading devices...</p>
           </div>
-        ) : activeTab === "settings" ? (
+        ) : activeTab === "settings" && userSession?.role === "admin" ? (
           /* Settings View */
           <SettingsView
             devices={devices}
@@ -557,7 +578,7 @@ export default function HomeControlPage() {
                 </p>
 
                 <div className="flex items-center space-x-2">
-                  {userSession.role === "admin" && (
+                  {userSession?.role === "admin" && (
                     <button
                       onClick={() => setIsAddModalOpen(true)}
                       className="flex items-center space-x-1 px-3.5 py-2 rounded-xl bg-teal-600 text-white font-semibold text-xs shadow-2xs"

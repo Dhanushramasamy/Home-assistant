@@ -58,7 +58,7 @@ export const GeneralSettings: React.FC<GeneralSettingsProps> = ({
             <div>
               <h4 className="text-xs font-bold text-slate-800">Security Access Role</h4>
               <p className="text-[11px] text-slate-500">
-                {currentUserRole === "admin" ? "Admin Mode (Full Settings Access)" : "Parent / Standard User (Simple Devices View)"}
+                {currentUserRole === "admin" ? "Admin Mode (Full Settings Access)" : "Standard User (Simple View)"}
               </p>
             </div>
             <span className={`px-2.5 py-1 rounded-lg font-bold text-xs border ${
@@ -66,7 +66,7 @@ export const GeneralSettings: React.FC<GeneralSettingsProps> = ({
                 ? "bg-purple-100 text-purple-800 border-purple-200"
                 : "bg-teal-100 text-teal-800 border-teal-200"
             }`}>
-              {currentUserRole === "admin" ? "Admin (DhanushRaja)" : "Standard User"}
+              {currentUserRole === "admin" ? "Admin" : "Standard User"}
             </span>
           </div>
         </div>
@@ -81,7 +81,7 @@ export const GeneralSettings: React.FC<GeneralSettingsProps> = ({
             </div>
             <div>
               <h3 className="text-base font-bold text-slate-900">Create New User Account</h3>
-              <p className="text-xs text-slate-500">Add accounts for parents or family members</p>
+              <p className="text-xs text-slate-500">Add accounts for family members or standard users</p>
             </div>
           </div>
 
@@ -107,7 +107,7 @@ export const GeneralSettings: React.FC<GeneralSettingsProps> = ({
                   required
                   value={newUsername}
                   onChange={(e) => setNewUsername(e.target.value)}
-                  placeholder="e.g. Parent"
+                  placeholder="Enter username"
                   className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-teal-500"
                 />
               </div>
@@ -136,7 +136,7 @@ export const GeneralSettings: React.FC<GeneralSettingsProps> = ({
                     checked={userRole === "user"}
                     onChange={() => setUserRole("user")}
                   />
-                  <span>Standard User (Parents - Simple View)</span>
+                  <span>Standard User (Simple View)</span>
                 </label>
                 <label className="flex items-center space-x-1 cursor-pointer">
                   <input
