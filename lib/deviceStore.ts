@@ -1,8 +1,14 @@
 import fs from "fs/promises";
 import path from "path";
+import os from "os";
 import { Device } from "@/types";
 
-const DATA_DIR = path.join(process.cwd(), "data");
+// On Vercel, process.cwd() is read-only (/var/task), but os.tmpdir() (/tmp) is writable
+const IS_VERCEL = process.env.VERCEL === "1" || process.env.NODE_ENV === "production";
+const DATA_DIR = IS_VERCEL
+  ? path.join(os.tmpdir(), "home-control-data")
+  : path.join(process.cwd(), "data");
+
 const DEVICES_FILE = path.join(DATA_DIR, "devices.json");
 
 export const INITIAL_DEVICES: Device[] = [
@@ -56,6 +62,9 @@ export const INITIAL_DEVICES: Device[] = [
   },
 ];
 
+// In-memory fallback cache to ensure zero crash on read-only environments
+let inMemoryDevices: Device[] | null = null;
+
 async function ensureDataFileExists(): Promise<void> {
   try {
     await fs.mkdir(DATA_DIR, { recursive: true });
@@ -69,16 +78,24 @@ async function ensureDataFileExists(): Promise<void> {
       );
     }
   } catch (err) {
-    console.error("Error creating data directory or devices file:", err);
+    // If read-only or permission error, handle gracefully
+    console.warn("Notice: File system read-only or constrained. Using memory store.", err);
   }
 }
 
 export async function getDevices(): Promise<Device[]> {
+  if (inMemoryDevices !== null) {
+    return inMemoryDevices;
+  }
+
   await ensureDataFileExists();
   try {
     const data = await fs.readFile(DEVICES_FILE, "utf-8");
-    return JSON.parse(data) as Device[];
+    const parsed = JSON.parse(data) as Device[];
+    inMemoryDevices = parsed;
+    return parsed;
   } catch {
+    inMemoryDevices = INITIAL_DEVICES;
     return INITIAL_DEVICES;
   }
 }
@@ -89,8 +106,14 @@ export async function getDeviceById(id: string): Promise<Device | null> {
 }
 
 export async function saveDevices(devices: Device[]): Promise<void> {
-  await ensureDataFileExists();
-  await fs.writeFile(DEVICES_FILE, JSON.stringify(devices, null, 2), "utf-8");
+  inMemoryDevices = devices;
+  try {
+    await ensureDataFileExists();
+    await fs.writeFile(DEVICES_FILE, JSON.stringify(devices, null, 2), "utf-8");
+  } catch (err) {
+    // Silently handle EROFS or read-only filesystem on Vercel lambda
+    console.warn("Notice: Saved devices in memory (File system read-only on serverless).", err);
+  }
 }
 
 export async function addDevice(
@@ -101,7 +124,6 @@ export async function addDevice(
 ): Promise<Device> {
   const devices = await getDevices();
   
-  // Generate a clean slug/id
   const baseId = newDeviceData.name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")

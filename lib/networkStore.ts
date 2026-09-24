@@ -1,8 +1,13 @@
 import fs from "fs/promises";
 import path from "path";
+import os from "os";
 import { NetworkConfig } from "@/types";
 
-const DATA_DIR = path.join(process.cwd(), "data");
+const IS_VERCEL = process.env.VERCEL === "1" || process.env.NODE_ENV === "production";
+const DATA_DIR = IS_VERCEL
+  ? path.join(os.tmpdir(), "home-control-data")
+  : path.join(process.cwd(), "data");
+
 const NETWORK_FILE = path.join(DATA_DIR, "network.json");
 
 export const INITIAL_NETWORK_CONFIG: NetworkConfig = {
@@ -14,6 +19,8 @@ export const INITIAL_NETWORK_CONFIG: NetworkConfig = {
   gatewayPort: 5000,
   timeoutMs: 4000,
 };
+
+let inMemoryNetworkConfig: NetworkConfig | null = null;
 
 async function ensureDataFileExists(): Promise<void> {
   try {
@@ -28,16 +35,23 @@ async function ensureDataFileExists(): Promise<void> {
       );
     }
   } catch (err) {
-    console.error("Error creating network config file:", err);
+    console.warn("Notice: Network config using memory store.", err);
   }
 }
 
 export async function getNetworkConfig(): Promise<NetworkConfig> {
+  if (inMemoryNetworkConfig !== null) {
+    return inMemoryNetworkConfig;
+  }
+
   await ensureDataFileExists();
   try {
     const data = await fs.readFile(NETWORK_FILE, "utf-8");
-    return { ...INITIAL_NETWORK_CONFIG, ...JSON.parse(data) };
+    const parsed = { ...INITIAL_NETWORK_CONFIG, ...JSON.parse(data) };
+    inMemoryNetworkConfig = parsed;
+    return parsed;
   } catch {
+    inMemoryNetworkConfig = INITIAL_NETWORK_CONFIG;
     return INITIAL_NETWORK_CONFIG;
   }
 }
@@ -47,8 +61,15 @@ export async function saveNetworkConfig(
 ): Promise<NetworkConfig> {
   const current = await getNetworkConfig();
   const updated: NetworkConfig = { ...current, ...config };
-  await ensureDataFileExists();
-  await fs.writeFile(NETWORK_FILE, JSON.stringify(updated, null, 2), "utf-8");
+  inMemoryNetworkConfig = updated;
+
+  try {
+    await ensureDataFileExists();
+    await fs.writeFile(NETWORK_FILE, JSON.stringify(updated, null, 2), "utf-8");
+  } catch (err) {
+    console.warn("Notice: Saved network config in memory (File system read-only).", err);
+  }
+
   return updated;
 }
 
