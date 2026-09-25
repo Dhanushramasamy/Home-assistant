@@ -9,7 +9,7 @@
     "relay": 1,
     "powerState": "off",
     "connectionState": "offline",
-    "lastSeen": "2026-09-25T10:15:46.133Z"
+    "lastSeen": "2026-09-25T10:25:43.270Z"
   },
   {
     "id": "bedroom-light-pixel",
@@ -21,6 +21,6 @@
     "relay": 1,
     "powerState": "off",
     "connectionState": "offline",
-    "lastSeen": "2026-09-25T10:15:44.472+00:00"
+    "lastSeen": "2026-09-25T10:25:42.411+00:00"
   }
 ]

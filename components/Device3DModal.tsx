@@ -40,11 +40,8 @@ export const Device3DModal: React.FC<Device3DModalProps> = ({
         {/* Top Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800/80 bg-slate-900/60">
           <div>
-            <span className="text-[10px] font-bold text-amber-500 uppercase tracking-widest block">
-              3D Interactive View
-            </span>
             <h3 className="text-base font-bold text-white tracking-tight">{device.name}</h3>
-            <p className="text-[11px] text-slate-400">{device.room} • {device.mode === "gateway" ? "Pi 5 Gateway" : "ESP32 Direct"}</p>
+            <p className="text-[11px] text-slate-400 font-medium">{device.room}</p>
           </div>
           <button
             onClick={onClose}

@@ -12,7 +12,6 @@ import {
   Activity,
   Trash2,
   Edit3,
-  Box,
   Sparkles,
 } from "lucide-react";
 import { Device3DModal } from "./Device3DModal";
@@ -121,28 +120,14 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
               <h3 className="text-xs sm:text-sm font-bold text-slate-800 tracking-tight truncate leading-tight">
                 {device.name}
               </h3>
-              <p className="text-[10px] text-slate-500 flex items-center space-x-1 mt-0.5 truncate">
-                <span className="px-1.5 py-0.2 rounded-md bg-slate-100 text-slate-600 font-medium shrink-0">
-                  {device.room}
-                </span>
-                <span>•</span>
-                <span className="capitalize truncate">
-                  {device.mode === "gateway" ? "Pi 5" : "ESP32"}
-                </span>
+              <p className="text-[11px] text-slate-500 mt-0.5 truncate font-medium">
+                {device.room}
               </p>
             </div>
           </div>
 
-          {/* Right side: Status Pill, 3D Button & Context Menu */}
+          {/* Right side: Status Pill & Context Menu */}
           <div className="flex items-center space-x-1 shrink-0 pt-0.5">
-            <button
-              onClick={() => setIs3DModalOpen(true)}
-              className="px-2 py-1 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-400 border border-slate-800 text-[10px] font-bold flex items-center space-x-1 transition-all"
-              title="Interactive 3D Mode"
-            >
-              <Box className="w-3 h-3 text-amber-400" />
-              <span className="hidden sm:inline">3D</span>
-            </button>
 
             <span
               className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${

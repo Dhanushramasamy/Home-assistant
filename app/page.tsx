@@ -626,7 +626,7 @@ export default function HomeControlPage() {
 
       {/* Footer */}
       <footer className="w-full border-t border-slate-200/80 py-3 text-center text-[11px] text-slate-400 bg-white">
-        Home Control • ESP32 Direct & Raspberry Pi Gateway Mode
+        Home Control
       </footer>
 
       {/* Modals */}
