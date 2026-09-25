@@ -67,6 +67,18 @@ export const INITIAL_DEVICES: Device[] = [
 
 let inMemoryDevices: Device[] | null = null;
 
+// Local file copy, used for timers saved while the timer table was missing.
+let localDevicesCache: Device[] | null | undefined;
+async function readLocalDevices(): Promise<Device[] | null> {
+  if (localDevicesCache !== undefined) return localDevicesCache;
+  try {
+    localDevicesCache = JSON.parse(await fs.readFile(DEVICES_FILE, "utf-8")) as Device[];
+  } catch {
+    localDevicesCache = null;
+  }
+  return localDevicesCache;
+}
+
 export async function getDevices(username: string = "default_user"): Promise<Device[]> {
   try {
     // 1. Attempt Supabase query from device_PRB_home_assistant table
@@ -75,6 +87,7 @@ export async function getDevices(username: string = "default_user"): Promise<Dev
       .select("*");
 
     if (!error && data && data.length > 0) {
+      const previous = inMemoryDevices ?? (await readLocalDevices());
       const formatted: Device[] = data.map((d: any) => ({
         id: d.id,
         name: d.name,
@@ -86,7 +99,7 @@ export async function getDevices(username: string = "default_user"): Promise<Dev
         powerState: d.power_state || "off",
         connectionState: d.connection_state || "connected",
         lastSeen: d.updated_at || new Date().toISOString(),
-        timers: inMemoryDevices?.find((m) => m.id === d.id)?.timers ?? [],
+        timers: previous?.find((m) => m.id === d.id)?.timers ?? [],
       }));
       await attachScheduledTimers(formatted);
       inMemoryDevices = formatted;
@@ -237,7 +250,22 @@ export async function clearAllDevices(username: string = "default_user"): Promis
 // It is never proof that a timer is running; ESP32 /status decides that.
 // If the timer table doesn't exist yet, records live in memory / the local file.
 
+// If the timer table is missing (SQL not run yet), fall back to local records
+// and check again after a short while instead of giving up for good.
 let timerTableAvailable = true;
+let timerTableRetryAt = 0;
+const TIMER_TABLE_RETRY_MS = 30_000;
+
+function timerTableUsable(): boolean {
+  if (!timerTableAvailable && Date.now() >= timerTableRetryAt) timerTableAvailable = true;
+  return timerTableAvailable;
+}
+
+function markTimerTableMissing(message: string) {
+  timerTableAvailable = false;
+  timerTableRetryAt = Date.now() + TIMER_TABLE_RETRY_MS;
+  console.warn("Timer table not available, using local timer records:", message);
+}
 
 function rowToTimerRecord(r: Record<string, unknown>): DeviceTimerConfig | null {
   if (r.action !== "on" && r.action !== "off") return null;
@@ -252,18 +280,44 @@ function rowToTimerRecord(r: Record<string, unknown>): DeviceTimerConfig | null 
   };
 }
 
-/** Loads every device's still-scheduled timer records onto the device objects. */
+/**
+ * Loads every device's still-scheduled timer records onto the device objects.
+ * Timers that were only saved locally (table missing at the time) are copied
+ * into the table first, so every browser and server sees the same records.
+ */
 async function attachScheduledTimers(devices: Device[]): Promise<void> {
-  if (!timerTableAvailable) return;
+  if (!timerTableUsable()) return;
+  let migrated = false;
   try {
+    const localOnly = devices.flatMap((d) =>
+      (d.timers ?? []).filter((t) => !t.recordId).map((t) => ({ deviceId: d.id, t }))
+    );
+    if (localOnly.length > 0) {
+      const { error: insertError } = await supabase.from(SUPABASE_TIMER_TABLE).insert(
+        localOnly.map(({ deviceId, t }) => ({
+          device_id: deviceId,
+          esp_timer_id: t.espId ?? null,
+          action: t.action,
+          seconds: t.seconds,
+          repeat: t.repeat,
+          status: "scheduled",
+          created_at: t.startedAt,
+        }))
+      );
+      if (insertError) {
+        markTimerTableMissing(insertError.message);
+        return;
+      }
+      migrated = true;
+    }
+
     const { data, error } = await supabase
       .from(SUPABASE_TIMER_TABLE)
       .select("*")
       .eq("status", "scheduled")
       .order("created_at", { ascending: true });
     if (error) {
-      timerTableAvailable = false;
-      console.warn("Timer table not available, using local timer records:", error.message);
+      markTimerTableMissing(error.message);
       return;
     }
     const byDevice = new Map<string, DeviceTimerConfig[]>();
@@ -275,12 +329,18 @@ async function attachScheduledTimers(devices: Device[]): Promise<void> {
       byDevice.set(row.device_id, list);
     }
     for (const d of devices) d.timers = byDevice.get(d.id) ?? [];
+    // Rewrite the local copy so migrated timers aren't inserted again later.
+    if (migrated) {
+      localDevicesCache = devices;
+      await persistLocal(devices);
+    }
   } catch (err) {
     console.warn("Timer records fetch notice:", err);
   }
 }
 
 async function persistLocal(devices: Device[]) {
+  localDevicesCache = devices;
   try {
     await fs.mkdir(DATA_DIR, { recursive: true });
     await fs.writeFile(DEVICES_FILE, JSON.stringify(devices, null, 2), "utf-8");
@@ -296,7 +356,7 @@ export async function addTimerRecord(deviceId: string, timer: Omit<DeviceTimerCo
   if (!device) return;
 
   let recordId: string | undefined;
-  if (timerTableAvailable) {
+  if (timerTableUsable()) {
     try {
       const { data, error } = await supabase
         .from(SUPABASE_TIMER_TABLE)
@@ -310,7 +370,7 @@ export async function addTimerRecord(deviceId: string, timer: Omit<DeviceTimerCo
         })
         .select("id")
         .single();
-      if (error) console.warn("Timer record insert notice:", error.message);
+      if (error) markTimerTableMissing(error.message);
       recordId = data?.id;
     } catch (err) {
       console.warn("Timer record insert notice:", err);
@@ -339,7 +399,7 @@ export async function closeTimerRecords(
   const closing = espIds === "all" ? current : current.filter((t) => t.espId !== undefined && espIds.includes(t.espId));
   if (closing.length === 0) return;
 
-  if (timerTableAvailable) {
+  if (timerTableUsable()) {
     const recordIds = closing.map((t) => t.recordId).filter((id): id is string => !!id);
     if (recordIds.length > 0) {
       try {
@@ -360,32 +420,72 @@ export async function closeTimerRecords(
 }
 
 /**
- * Brings the DB in line with what the ESP32 reports: any scheduled record
- * whose timer is no longer running on the device is marked "ended".
+ * Brings the DB in line with what the ESP32 reports:
+ * - scheduled records whose timer is no longer running are marked "ended";
+ * - running timers the DB doesn't know (created from another browser whose
+ *   save failed, or directly on the device) are added, so every client sees them.
  * Timers are never re-created on the ESP32 from the DB.
  */
-export async function reconcileTimerRecords(deviceId: string, runningEspIds: number[]): Promise<void> {
+export async function reconcileTimerRecords(
+  deviceId: string,
+  running: { id: number; action: "on" | "off"; seconds: number; repeat: boolean; remaining: number }[]
+): Promise<void> {
   const devices = await getDevices();
   const target = devices.find((d) => d.id === deviceId);
   if (!target) return;
-  const closing = (target.timers ?? []).filter((t) => t.espId === undefined || !runningEspIds.includes(t.espId));
-  if (closing.length === 0) return;
 
-  if (timerTableAvailable) {
+  const runningIds = running.map((t) => t.id);
+  const current = target.timers ?? [];
+  const closing = current.filter((t) => t.espId === undefined || !runningIds.includes(t.espId));
+  const knownIds = new Set(current.map((t) => t.espId));
+  const unknown = running.filter((t) => !knownIds.has(t.id));
+  if (closing.length === 0 && unknown.length === 0) return;
+
+  const adopted: DeviceTimerConfig[] = unknown.map((t) => ({
+    espId: t.id,
+    action: t.action,
+    seconds: t.seconds,
+    repeat: t.repeat,
+    // Best estimate of when it started, from what's left on the device.
+    startedAt: new Date(Date.now() - Math.max(0, t.seconds - t.remaining) * 1000).toISOString(),
+  }));
+
+  if (timerTableUsable()) {
     const recordIds = closing.map((t) => t.recordId).filter((id): id is string => !!id);
-    if (recordIds.length > 0) {
-      try {
+    try {
+      if (recordIds.length > 0) {
         await supabase
           .from(SUPABASE_TIMER_TABLE)
           .update({ status: "ended", updated_at: new Date().toISOString() })
           .in("id", recordIds);
-      } catch (err) {
-        console.warn("Timer record update notice:", err);
       }
+      if (adopted.length > 0) {
+        const { data, error } = await supabase
+          .from(SUPABASE_TIMER_TABLE)
+          .insert(
+            adopted.map((t) => ({
+              device_id: deviceId,
+              esp_timer_id: t.espId,
+              action: t.action,
+              seconds: t.seconds,
+              repeat: t.repeat,
+              status: "scheduled",
+              created_at: t.startedAt,
+            }))
+          )
+          .select("id, esp_timer_id");
+        if (error) markTimerTableMissing(error.message);
+        for (const row of data ?? []) {
+          const match = adopted.find((t) => t.espId === row.esp_timer_id);
+          if (match) match.recordId = row.id;
+        }
+      }
+    } catch (err) {
+      console.warn("Timer record reconcile notice:", err);
     }
   }
 
-  target.timers = (target.timers ?? []).filter((t) => !closing.includes(t));
+  target.timers = [...current.filter((t) => !closing.includes(t)), ...adopted];
   inMemoryDevices = devices;
   await persistLocal(devices);
 }

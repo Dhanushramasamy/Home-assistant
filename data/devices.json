@@ -9,8 +9,17 @@
     "relay": 1,
     "powerState": "off",
     "connectionState": "connected",
-    "lastSeen": "2026-09-25T15:29:18.780Z",
-    "timers": []
+    "lastSeen": "2026-09-25T15:46:56.319+00:00",
+    "timers": [
+      {
+        "espId": 1,
+        "action": "on",
+        "seconds": 600,
+        "repeat": false,
+        "startedAt": "2026-09-25T15:40:42.224Z",
+        "recordId": "0c632940-4ef2-4153-9cf7-6702d563fecc"
+      }
+    ]
   },
   {
     "id": "bedroom-light-pixel",
@@ -22,7 +31,7 @@
     "relay": 1,
     "powerState": "off",
     "connectionState": "offline",
-    "lastSeen": "2026-09-25T15:29:16.534+00:00",
+    "lastSeen": "2026-09-25T15:46:56.319+00:00",
     "timers": []
   }
 ]

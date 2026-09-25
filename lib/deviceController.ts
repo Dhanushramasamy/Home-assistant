@@ -436,7 +436,7 @@ export async function applyDeviceReport(
     await updateDevice(device.id, { ...(power ? { powerState: power } : {}), connectionState: "connected" });
   }
 
-  await reconcileTimerRecords(device.id, report.timers.map((t) => t.id));
+  await reconcileTimerRecords(device.id, report.timers);
   const saved = (await getDeviceById(device.id))?.timers ?? [];
   const raw = report.raw ?? {};
 
