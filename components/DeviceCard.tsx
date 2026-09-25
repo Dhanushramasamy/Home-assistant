@@ -94,12 +94,12 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
   return (
     <>
       <div
-        className={`relative flex flex-col justify-between p-4 sm:p-5 rounded-3xl border transition-all duration-200 shadow-2xs hover:shadow-md ${getPastelBg()}`}
+        className={`relative flex flex-col justify-between h-full p-4 sm:p-5 rounded-3xl border transition-all duration-200 shadow-2xs hover:shadow-md ${getPastelBg()}`}
       >
         {/* Top Header Bar: Device Icon + Compact Name Label + Status Pill + Menu */}
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-start justify-between gap-2 mb-3">
           {/* Icon & Compact Name Label */}
-          <div className="flex items-center space-x-2.5 min-w-0">
+          <div className="flex items-center space-x-2.5 min-w-0 flex-1">
             <button
               onClick={() => setIs3DModalOpen(true)}
               className={`w-10 h-10 rounded-2xl flex items-center justify-center border shrink-0 transition-all hover:scale-105 active:scale-95 ${
@@ -116,17 +116,17 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
               {renderIcon()}
             </button>
 
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               {/* Small Compact Device Name Label */}
               <h3 className="text-xs sm:text-sm font-bold text-slate-800 tracking-tight truncate leading-tight">
                 {device.name}
               </h3>
-              <p className="text-[10px] text-slate-500 flex items-center space-x-1 mt-0.5">
-                <span className="px-1.5 py-0.2 rounded-md bg-slate-100 text-slate-600 font-medium">
+              <p className="text-[10px] text-slate-500 flex items-center space-x-1 mt-0.5 truncate">
+                <span className="px-1.5 py-0.2 rounded-md bg-slate-100 text-slate-600 font-medium shrink-0">
                   {device.room}
                 </span>
                 <span>•</span>
-                <span className="capitalize">
+                <span className="capitalize truncate">
                   {device.mode === "gateway" ? "Pi 5" : "ESP32"}
                 </span>
               </p>
@@ -134,14 +134,14 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
           </div>
 
           {/* Right side: Status Pill, 3D Button & Context Menu */}
-          <div className="flex items-center space-x-1 shrink-0">
+          <div className="flex items-center space-x-1 shrink-0 pt-0.5">
             <button
               onClick={() => setIs3DModalOpen(true)}
               className="px-2 py-1 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-400 border border-slate-800 text-[10px] font-bold flex items-center space-x-1 transition-all"
               title="Interactive 3D Mode"
             >
               <Box className="w-3 h-3 text-amber-400" />
-              <span>3D</span>
+              <span className="hidden sm:inline">3D</span>
             </button>
 
             <span

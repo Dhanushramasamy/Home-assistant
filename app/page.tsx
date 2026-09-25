@@ -364,7 +364,7 @@ export default function HomeControlPage() {
 
       {/* Top Header */}
       <header className="sticky top-0 z-40 w-full bg-white/90 backdrop-blur-md border-b border-slate-200/80">
-        <div className="max-w-5xl mx-auto px-4 py-3">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3">
           <div className="flex items-center justify-between">
             
             {/* Title & Connection Dot */}
@@ -533,7 +533,7 @@ export default function HomeControlPage() {
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-5">
+      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6">
         
         {isLoadingApp ? (
           <div className="flex flex-col items-center justify-center py-20 space-y-2">
@@ -604,7 +604,7 @@ export default function HomeControlPage() {
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5 items-stretch">
                 {filteredDevices.map((device) => (
                   <DeviceCard
                     key={device.id}
