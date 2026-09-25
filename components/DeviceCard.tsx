@@ -90,29 +90,47 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
 
   return (
     <div
-      className={`relative flex flex-col justify-between p-5 rounded-2xl border transition-all duration-200 shadow-2xs hover:shadow-md ${getPastelBg()}`}
+      className={`relative flex flex-col justify-between p-4 sm:p-5 rounded-2xl border transition-all duration-200 shadow-2xs hover:shadow-md ${getPastelBg()}`}
     >
-      {/* Top Bar: Icon + Connection Badge + Menu */}
+      {/* Top Header Bar: Device Icon + Compact Name Label + Status Pill + Menu */}
       <div className="flex items-center justify-between mb-3">
-        {/* Device Icon */}
-        <div
-          className={`w-11 h-11 rounded-xl flex items-center justify-center border transition-all ${
-            isOn
-              ? device.type === "light"
-                ? "bg-amber-100 border-amber-200"
-                : device.type === "fan"
-                ? "bg-sky-100 border-sky-200"
-                : "bg-emerald-100 border-emerald-200"
-              : "bg-slate-100 border-slate-200"
-          }`}
-        >
-          {renderIcon()}
+        {/* Icon & Compact Name Label */}
+        <div className="flex items-center space-x-2.5 min-w-0">
+          <div
+            className={`w-9 h-9 rounded-xl flex items-center justify-center border shrink-0 transition-all ${
+              isOn
+                ? device.type === "light"
+                  ? "bg-amber-100 border-amber-200"
+                  : device.type === "fan"
+                  ? "bg-sky-100 border-sky-200"
+                  : "bg-emerald-100 border-emerald-200"
+                : "bg-slate-100 border-slate-200"
+            }`}
+          >
+            {renderIcon()}
+          </div>
+
+          <div className="min-w-0">
+            {/* Small Compact Device Name Label */}
+            <h3 className="text-xs sm:text-sm font-bold text-slate-800 tracking-tight truncate leading-tight">
+              {device.name}
+            </h3>
+            <p className="text-[10px] text-slate-500 flex items-center space-x-1 mt-0.5">
+              <span className="px-1.5 py-0.2 rounded-md bg-slate-100 text-slate-600 font-medium">
+                {device.room}
+              </span>
+              <span>•</span>
+              <span className="capitalize">
+                {device.mode === "gateway" ? "Pi 5" : "ESP32"}
+              </span>
+            </p>
+          </div>
         </div>
 
-        <div className="flex items-center space-x-1.5">
-          {/* Connection Status Pill */}
+        {/* Right side: Status Pill & Context Menu */}
+        <div className="flex items-center space-x-1 shrink-0">
           <span
-            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border ${
+            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${
               isConnected
                 ? "bg-emerald-100/90 text-emerald-800 border-emerald-200"
                 : "bg-rose-100/90 text-rose-800 border-rose-200"
@@ -123,10 +141,9 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
                 isConnected ? "bg-emerald-500" : "bg-rose-500"
               }`}
             />
-            {isConnected ? "Connected" : "Offline"}
+            {isConnected ? "Online" : "Offline"}
           </span>
 
-          {/* Context Menu */}
           <div className="relative">
             <button
               onClick={() => setShowMenu(!showMenu)}
@@ -183,42 +200,14 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
         </div>
       </div>
 
-      {/* Middle: Device Name & Room */}
-      <div className="my-1">
-        <h3 className="text-base font-bold text-slate-900 tracking-tight truncate">
-          {device.name}
-        </h3>
-        <p className="text-xs text-slate-500 flex items-center space-x-1.5 mt-0.5">
-          <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-[11px] font-medium">
-            {device.room}
-          </span>
-          <span>•</span>
-          <span className="capitalize text-[11px] text-slate-500">
-            {device.mode === "gateway" ? "Pi Gateway" : "Direct ESP32"}
-          </span>
-        </p>
-      </div>
-
-      {/* Bottom: Power Button */}
-      <div className="mt-4 pt-3 border-t border-slate-200/60 flex items-center justify-between">
-        <div className="text-xs">
-          <span className="block text-[10px] uppercase font-bold text-slate-400">
-            Status
-          </span>
-          <span
-            className={`font-extrabold uppercase text-xs ${
-              isOn ? "text-emerald-700" : "text-slate-500"
-            }`}
-          >
-            {device.powerState}
-          </span>
-        </div>
-
+      {/* Main Bottom Section: BIG Prominent Power Toggle Button */}
+      <div className="mt-3 pt-2 border-t border-slate-200/60">
         <PowerButton
           powerState={device.powerState}
           isLoading={isActionLoading}
           onToggle={() => onTogglePower(device.id, device.powerState)}
-          size="md"
+          size="lg"
+          fullWidth
         />
       </div>
     </div>
