@@ -1,17 +1,5 @@
 [
   {
-    "id": "bedroom-light-pixel",
-    "name": "Bedroom light Pixel",
-    "room": "Bedroom",
-    "type": "light",
-    "mode": "direct",
-    "ip": "10.196.10.201",
-    "relay": 1,
-    "powerState": "off",
-    "connectionState": "offline",
-    "lastSeen": "2026-09-25T12:53:28.633Z"
-  },
-  {
     "id": "kitchen-light",
     "name": "Bedroom Light Airtel",
     "room": "Bedroom",
@@ -21,6 +9,20 @@
     "relay": 1,
     "powerState": "off",
     "connectionState": "offline",
-    "lastSeen": "2026-09-25T12:53:28.012+00:00"
+    "lastSeen": "2026-09-25T14:30:44.204+00:00",
+    "timer": null
+  },
+  {
+    "id": "bedroom-light-pixel",
+    "name": "Bedroom light Pixel",
+    "room": "Bedroom",
+    "type": "light",
+    "mode": "direct",
+    "ip": "10.196.10.201",
+    "relay": 1,
+    "powerState": "off",
+    "connectionState": "offline",
+    "lastSeen": "2026-09-25T14:30:45.669Z",
+    "timer": null
   }
 ]

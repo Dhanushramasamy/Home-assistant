@@ -3,6 +3,7 @@
 import React, { useEffect } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { easeApple } from "@/lib/deviceTheme";
+import { useBackClose } from "@/lib/useBackClose";
 
 interface ModalShellProps {
   isOpen: boolean;
@@ -13,6 +14,8 @@ interface ModalShellProps {
 
 /** Dark glass sheet: dimmed backdrop, panel that springs up from below. */
 export const ModalShell: React.FC<ModalShellProps> = ({ isOpen, onClose, children, className = "max-w-md" }) => {
+  useBackClose(isOpen, onClose);
+
   useEffect(() => {
     if (!isOpen) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();

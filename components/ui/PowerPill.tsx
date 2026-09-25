@@ -4,6 +4,7 @@ import React from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Power } from "lucide-react";
 import { springs } from "@/lib/deviceTheme";
+import { playSwitchClick } from "@/lib/sound";
 
 interface PowerPillProps {
   on: boolean;
@@ -11,13 +12,15 @@ interface PowerPillProps {
   disabled?: boolean;
   size?: "md" | "lg";
   label?: string;
+  /** Play the click sound on toggle (default true). */
+  sound?: boolean;
 }
 
 /**
  * Glass pill toggle: "On" + glowing lime knob when on,
  * white knob + "Off" when off. The knob slides across on toggle.
  */
-export const PowerPill: React.FC<PowerPillProps> = ({ on, onToggle, disabled, size = "md", label }) => {
+export const PowerPill: React.FC<PowerPillProps> = ({ on, onToggle, disabled, size = "md", label, sound = true }) => {
   const knob = size === "lg" ? "h-12 w-12" : "h-10 w-10";
   const icon = size === "lg" ? "h-5 w-5" : "h-[18px] w-[18px]";
 
@@ -30,6 +33,7 @@ export const PowerPill: React.FC<PowerPillProps> = ({ on, onToggle, disabled, si
       disabled={disabled}
       onClick={(e) => {
         e.stopPropagation();
+        if (sound) playSwitchClick(!on);
         onToggle();
       }}
       onPointerDown={(e) => e.stopPropagation()}

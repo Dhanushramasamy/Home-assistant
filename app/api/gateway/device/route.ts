@@ -26,6 +26,27 @@ export async function POST(request: Request) {
     const nextPowerState = action === "toggle" ? (device.powerState === "on" ? "off" : "on") : action;
     const espUrl = `http://${targetIp}/${nextPowerState}`;
 
+    // Forward timer/status calls to the ESP32 and return its JSON as `esp`
+    if (action === "esp") {
+      const { path, query } = body as { path?: string; query?: Record<string, string> };
+      if (path !== "status" && path !== "timer" && path !== "timer/cancel") {
+        return NextResponse.json({ error: "Unsupported ESP32 path" }, { status: 400 });
+      }
+      const qs = new URLSearchParams(query || {}).toString();
+      const forwardUrl = `http://${targetIp}/${path}${qs ? `?${qs}` : ""}`;
+      const espController = new AbortController();
+      const espTimeout = setTimeout(() => espController.abort(), 2500);
+      try {
+        const espResponse = await fetch(forwardUrl, { method: "GET", signal: espController.signal, cache: "no-store" });
+        const esp = await espResponse.json().catch(() => null);
+        return NextResponse.json({ success: espResponse.ok, deviceId: device.id, forwardedUrl: forwardUrl, esp }, { status: espResponse.ok ? 200 : 502 });
+      } catch {
+        return NextResponse.json({ success: false, deviceId: device.id, forwardedUrl: forwardUrl, esp: null }, { status: 504 });
+      } finally {
+        clearTimeout(espTimeout);
+      }
+    }
+
     // Status ping from gateway
     if (action === "status") {
       return NextResponse.json({

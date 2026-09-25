@@ -1,21 +1,12 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Device, PowerState } from "@/types";
+import { Device, PowerState, TimerAction } from "@/types";
 import { Dynamic3DCanvas } from "./3d/Dynamic3DCanvas";
 import {
   ChevronLeft,
   MoreVertical,
-  Minus,
-  Plus,
-  Sun,
-  Moon,
-  Palette,
-  BookOpen,
-  Wind,
-  Leaf,
-  Zap,
   Activity,
   Pencil,
   Trash2,
@@ -23,12 +14,21 @@ import {
   Fan,
   Plug,
   Cpu,
+  Wifi,
+  WifiOff,
+  CircuitBoard,
+  Server,
+  Loader2,
   type LucideIcon,
 } from "lucide-react";
 import { ModalShell } from "./ui/ModalShell";
 import { PowerPill } from "./ui/PowerPill";
-import { RollingNumber } from "./ui/RollingNumber";
+import { Switch } from "./ui/Switch";
+import { Button } from "./ui/Button";
+import type { EspStatusEntry } from "./DeviceCard";
 import { easeApple, springs } from "@/lib/deviceTheme";
+import { formatCountdown, formatDuration, remainingNow, secondsUntilClock } from "@/lib/timerClient";
+import { useNow } from "@/lib/useNow";
 
 interface Device3DModalProps {
   device: Device | null;
@@ -38,27 +38,25 @@ interface Device3DModalProps {
   onTestConnection?: (deviceId: string) => void;
   onEditDevice?: (device: Device) => void;
   onDeleteDevice?: (device: Device) => void;
+  espStatus?: EspStatusEntry;
+  onRefreshStatus?: (deviceId: string) => Promise<void>;
+  onStartTimer?: (deviceId: string, action: TimerAction, seconds: number, repeat: boolean) => Promise<void>;
+  onCancelTimer?: (deviceId: string) => Promise<void>;
 }
 
 const icons = { light: Lightbulb, fan: Fan, plug: Plug, other: Cpu };
 
-const modesByType: Partial<Record<Device["type"], { id: string; label: string; icon: LucideIcon }[]>> = {
-  light: [
-    { id: "light", label: "Light", icon: Sun },
-    { id: "night", label: "Night", icon: Moon },
-    { id: "color", label: "Color", icon: Palette },
-    { id: "reading", label: "Reading", icon: BookOpen },
-  ],
-  fan: [
-    { id: "normal", label: "Normal", icon: Wind },
-    { id: "sleep", label: "Sleep", icon: Moon },
-    { id: "breeze", label: "Breeze", icon: Leaf },
-    { id: "turbo", label: "Turbo", icon: Zap },
-  ],
-};
+// Quick picks for the "After" duration. Any custom hours/minutes also work.
+const quickDurations = [
+  { label: "10m", seconds: 10 * 60 },
+  { label: "30m", seconds: 30 * 60 },
+  { label: "1h", seconds: 60 * 60 },
+  { label: "2h", seconds: 2 * 60 * 60 },
+];
+const MAX_TIMER_SECONDS = 24 * 60 * 60;
 
-const TIMER_MS = 60 * 60 * 1000;
-const MIN = 10;
+// How often to re-sync with the ESP32 while the sheet is open (countdown ticks locally).
+const SYNC_MS = 30_000;
 
 export const Device3DModal: React.FC<Device3DModalProps> = ({
   device,
@@ -68,47 +66,70 @@ export const Device3DModal: React.FC<Device3DModalProps> = ({
   onTestConnection,
   onEditDevice,
   onDeleteDevice,
+  espStatus,
+  onRefreshStatus,
+  onStartTimer,
+  onCancelTimer,
 }) => {
-  const [controlValue, setControlValue] = useState<number>(60); // Brightness or speed, 10-100
-  const [activeMode, setActiveMode] = useState<string>("");
   const [showMenu, setShowMenu] = useState(false);
-  const [timerAt, setTimerAt] = useState<Date | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const powerRef = useRef<PowerState | undefined>(device?.powerState);
+  const [timerAction, setTimerAction] = useState<TimerAction>("off");
+  const [timerMode, setTimerMode] = useState<"after" | "at">("after");
+  const [hours, setHours] = useState("0");
+  const [minutes, setMinutes] = useState("10");
+  const [atTime, setAtTime] = useState("22:00");
+  const [repeat, setRepeat] = useState(false);
+  const [busy, setBusy] = useState(false);
 
+  const deviceId = device?.id;
+  const timer = espStatus?.timer;
+  const timerActive = !!timer?.active;
+  const now = useNow(isOpen && timerActive);
+  const left = remainingNow(timer, espStatus?.syncedAt ?? 0, now);
+
+  // Seconds sent to the ESP32: a custom duration, or the time until a clock time.
+  const clock = useNow(isOpen && !timerActive && timerMode === "at");
+  const durationSeconds = (Number(hours) || 0) * 3600 + (Number(minutes) || 0) * 60;
+  const timerSeconds = timerMode === "at" ? secondsUntilClock(atTime, clock) : durationSeconds;
+  const useRepeat = repeat && timerMode === "after";
+  const timerValid = timerSeconds >= 60 && timerSeconds <= MAX_TIMER_SECONDS;
+  const setDuration = (secs: number) => {
+    setHours(String(Math.floor(secs / 3600)));
+    setMinutes(String(Math.floor((secs % 3600) / 60)));
+  };
+
+  // Sync with the ESP32 when the sheet opens, then every 30 s while it stays open.
   useEffect(() => {
-    powerRef.current = device?.powerState;
-  }, [device?.powerState]);
+    if (!isOpen || !deviceId || !onRefreshStatus) return;
+    void onRefreshStatus(deviceId);
+    const id = setInterval(() => void onRefreshStatus(deviceId), SYNC_MS);
+    return () => clearInterval(id);
+  }, [isOpen, deviceId, onRefreshStatus]);
 
-  useEffect(
-    () => () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    },
-    []
-  );
+  // When a one-shot timer reaches zero, re-check so power + timer come from the ESP32.
+  const expired = isOpen && timerActive && !timer?.repeat && left === 0;
+  useEffect(() => {
+    if (!expired || !deviceId || !onRefreshStatus) return;
+    const id = setTimeout(() => void onRefreshStatus(deviceId), 2000);
+    return () => clearTimeout(id);
+  }, [expired, deviceId, onRefreshStatus]);
 
   const isOn = device?.powerState === "on";
   const Icon = icons[device?.type ?? "other"] ?? Cpu;
-  const modes = modesByType[device?.type ?? "other"] ?? [];
-  const mode = activeMode || modes[0]?.id;
-  const hasLevel = device?.type === "light" || device?.type === "fan";
-  const pct = ((controlValue - MIN) / (100 - MIN)) * 100;
+  const has3D = device?.type === "light" || device?.type === "fan";
+  const isConnected = espStatus ? espStatus.reachable : device?.connectionState === "connected";
 
-  // Client-side timer: flips the device once after an hour while the app is open.
-  const toggleTimer = () => {
-    if (!device) return;
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-      setTimerAt(null);
-      return;
-    }
-    timerRef.current = setTimeout(() => {
-      onTogglePower(device.id, powerRef.current ?? device.powerState);
-      timerRef.current = null;
-      setTimerAt(null);
-    }, TIMER_MS);
-    setTimerAt(new Date(Date.now() + TIMER_MS));
+  const startTimer = async () => {
+    if (!device || !onStartTimer) return;
+    setBusy(true);
+    if (!timerValid) return;
+    await onStartTimer(device.id, timerAction, timerSeconds, useRepeat);
+    setBusy(false);
+  };
+  const cancelTimer = async () => {
+    if (!device || !onCancelTimer) return;
+    setBusy(true);
+    await onCancelTimer(device.id);
+    setBusy(false);
   };
 
   const menuItems = device
@@ -191,11 +212,11 @@ export const Device3DModal: React.FC<Device3DModalProps> = ({
               aria-hidden
               className="pointer-events-none absolute inset-x-16 bottom-4 top-16 rounded-full bg-accent blur-[70px]"
               initial={false}
-              animate={{ opacity: isOn ? 0.08 + controlValue / 700 : 0 }}
+              animate={{ opacity: isOn ? 0.2 : 0 }}
               transition={{ duration: 0.6 }}
             />
-            {hasLevel ? (
-              <Dynamic3DCanvas type={device.type} isOn={isOn} value={controlValue} />
+            {has3D ? (
+              <Dynamic3DCanvas type={device.type} isOn={isOn} value={100} />
             ) : (
               <div className="flex h-60 items-center justify-center">
                 <motion.button
@@ -215,107 +236,219 @@ export const Device3DModal: React.FC<Device3DModalProps> = ({
           </motion.div>
 
           <div className="space-y-3 px-5 pb-6">
-            {/* Level */}
-            {hasLevel && (
-              <motion.div {...stagger(1)} className={`glass rounded-[28px] p-4 transition-opacity ${isOn ? "" : "opacity-50"}`}>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => isOn && setControlValue(MIN)}
-                    className="h-11 w-11 shrink-0 rounded-full bg-[#3b3d24]"
-                    aria-label="Minimum"
-                  />
-                  <input
-                    type="range"
-                    min={MIN}
-                    max={100}
-                    step={5}
-                    value={controlValue}
-                    disabled={!isOn}
-                    onChange={(e) => setControlValue(Number(e.target.value))}
-                    className="slider flex-1"
-                    style={{ "--range-pct": `${pct}%` } as React.CSSProperties}
-                    aria-label={device.type === "fan" ? "Fan speed" : "Brightness"}
-                  />
-                  <motion.button
-                    onClick={() => isOn && setControlValue(100)}
-                    animate={{ boxShadow: isOn ? `0 0 ${8 + controlValue / 4}px rgb(232 240 71 / 0.6)` : "none" }}
-                    className="h-11 w-11 shrink-0 rounded-full bg-accent"
-                    aria-label="Maximum"
-                  />
-                </div>
-                <div className="mt-4 flex justify-center">
-                  <div className="glass-btn flex items-center gap-4 rounded-full p-1.5">
-                    <button
-                      onClick={() => setControlValue((v) => Math.max(MIN, v - 10))}
-                      disabled={!isOn || controlValue <= MIN}
-                      className="flex h-11 w-11 items-center justify-center rounded-full bg-white/[0.06] disabled:opacity-40"
-                      aria-label="Decrease"
-                    >
-                      <Minus className="h-5 w-5" />
-                    </button>
-                    <span className="min-w-[4ch] text-center text-[28px] font-medium tabular-nums">
-                      <RollingNumber value={controlValue} />%
-                    </span>
-                    <motion.button
-                      whileTap={{ scale: 0.9 }}
-                      onClick={() => setControlValue((v) => Math.min(100, v + 10))}
-                      disabled={!isOn || controlValue >= 100}
-                      className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-[#151515] disabled:opacity-40"
-                      aria-label="Increase"
-                    >
-                      <Plus className="h-5 w-5" />
-                    </motion.button>
-                  </div>
-                </div>
-              </motion.div>
-            )}
+            {/* Device info tiles */}
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                {
+                  label: "Status",
+                  value: isConnected ? "Online" : "No Response",
+                  icon: isConnected ? Wifi : WifiOff,
+                  tone: isConnected ? "#e8f047" : "#f87171",
+                },
+                { label: "Relay", value: `${device.relay}`, icon: CircuitBoard, tone: "#d4d4d8" },
+                {
+                  label: "Connection",
+                  value: device.mode === "gateway" ? "Gateway" : "Direct",
+                  icon: device.mode === "gateway" ? Server : Wifi,
+                  tone: "#d4d4d8",
+                },
+              ].map((t, i) => (
+                <motion.div
+                  key={t.label}
+                  {...stagger(1 + i * 0.5)}
+                  className="glass flex flex-col items-center rounded-[28px] px-2 py-4 text-center"
+                >
+                  <span className="glass-btn flex h-11 w-11 items-center justify-center rounded-full">
+                    <t.icon className="h-5 w-5" style={{ color: t.tone }} strokeWidth={1.8} />
+                  </span>
+                  <span className="mt-2 text-[12px] text-muted">{t.label}</span>
+                  <span className="mt-0.5 max-w-full truncate text-[15px] font-medium sm:text-[17px]" style={{ color: t.label === "Status" && !isConnected ? "#f87171" : undefined }}>
+                    {t.value}
+                  </span>
+                </motion.div>
+              ))}
+            </div>
 
-            {/* Modes */}
-            {modes.length > 0 && (
-              <motion.div {...stagger(2)} className="glass flex items-center gap-2 rounded-full p-1.5">
-                {modes.map((m) => {
-                  const active = mode === m.id;
-                  return (
-                    <motion.button
-                      layout
-                      key={m.id}
-                      onClick={() => setActiveMode(m.id)}
-                      transition={springs.snappy}
-                      className={`relative flex h-12 items-center justify-center gap-2 rounded-full ${active ? "flex-1 px-5" : "w-12 shrink-0"}`}
-                      aria-label={m.label}
-                    >
-                      {active && (
-                        <motion.span
-                          layoutId={`mode-${device.id}`}
-                          transition={springs.snappy}
-                          className="absolute inset-0 rounded-full border border-white/10 bg-white/[0.1]"
-                        />
-                      )}
-                      {!active && <span className="absolute inset-0 rounded-full bg-white/[0.04]" />}
-                      <m.icon className="relative h-5 w-5" style={{ color: active ? "#e8f047" : "#d4d4d8" }} />
-                      {active && (
-                        <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative text-[15px]">
-                          {m.label}
-                        </motion.span>
-                      )}
-                    </motion.button>
-                  );
-                })}
-              </motion.div>
-            )}
-
-            {/* Timer */}
-            <motion.div {...stagger(3)} className="glass flex items-center justify-between gap-3 rounded-[28px] px-5 py-4">
+            {/* IP + live test */}
+            <motion.div {...stagger(2.5)} className="glass flex items-center justify-between gap-3 rounded-[28px] px-5 py-3.5">
               <div className="min-w-0">
-                <p className="text-[17px]">Timer</p>
-                <p className="truncate text-[13px] text-muted">
-                  {timerAt
-                    ? `${isOn ? "Turns off" : "Turns on"} at ${timerAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
-                    : `After 1 hour turn ${isOn ? "off" : "on"}`}
-                </p>
+                <p className="text-[13px] text-muted">IP Address</p>
+                <p className="truncate font-mono text-[16px]">{device.ip}</p>
               </div>
-              <PowerPill on={!!timerAt} onToggle={toggleTimer} label="Timer" />
+              {onTestConnection && (
+                <motion.button
+                  whileTap={{ scale: 0.94 }}
+                  onClick={() => onTestConnection(device.id)}
+                  className="glass-btn flex h-11 shrink-0 items-center gap-2 rounded-full px-4 text-[15px]"
+                >
+                  <Activity className="h-4 w-4 text-accent" />
+                  Test
+                </motion.button>
+              )}
             </motion.div>
+
+            {/* Timer (runs on the ESP32) */}
+            {onStartTimer && (
+              <motion.div {...stagger(3)} className="glass space-y-4 rounded-[28px] px-5 py-4">
+                <AnimatePresence mode="wait" initial={false}>
+                  {timerActive ? (
+                    <motion.div
+                      key="active"
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.25, ease: easeApple }}
+                      className="space-y-4"
+                    >
+                      <div>
+                        <p className="text-[17px]">Timer</p>
+                        <p className="text-[13px] text-muted">
+                          {timer?.repeat && timer.seconds
+                            ? `${timer.action === "on" ? "ON" : "OFF"} every ${formatDuration(timer.seconds)} · next in`
+                            : `${timer?.action === "on" ? "ON" : "OFF"} in`}
+                        </p>
+                      </div>
+                      <p className="text-center text-[48px] font-medium leading-none tabular-nums tracking-tight text-accent">
+                        {formatCountdown(left)}
+                      </p>
+                      <Button variant="danger" onClick={cancelTimer} disabled={busy} className="w-full py-3 text-[15px]">
+                        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Cancel Timer"}
+                      </Button>
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="setup"
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.25, ease: easeApple }}
+                      className="space-y-4"
+                    >
+                      <div>
+                        <p className="text-[17px]">Timer</p>
+                        {espStatus && !espStatus.reachable && (
+                          <p className="text-[12px] text-danger">Device not reachable right now</p>
+                        )}
+                        <p className="text-[13px] text-muted">
+                          {!timerValid
+                              ? "Choose between 1 minute and 24 hours"
+                              : timerMode === "at"
+                                ? `Turn ${timerAction.toUpperCase()} at ${atTime} · in ${formatDuration(Math.round(timerSeconds / 60) * 60)}`
+                                : `Turn ${timerAction.toUpperCase()} ${useRepeat ? "every" : "after"} ${formatDuration(timerSeconds)}`}
+                        </p>
+                      </div>
+
+                      {/* Action */}
+                      <div className="grid grid-cols-2 gap-1 rounded-full bg-white/[0.05] p-1">
+                        {(["on", "off"] as const).map((a) => (
+                          <button
+                            key={a}
+                            onClick={() => setTimerAction(a)}
+                            className={`relative h-10 rounded-full text-[14px] ${timerAction === a ? "text-[#151515]" : "text-ink"}`}
+                          >
+                            {timerAction === a && (
+                              <motion.span layoutId={`timer-action-${device.id}`} transition={springs.snappy} className="absolute inset-0 rounded-full bg-white" />
+                            )}
+                            <span className="relative">Turn {a === "on" ? "On" : "Off"}</span>
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* When: after a duration, or at a clock time */}
+                      <div className="grid grid-cols-2 gap-1 rounded-full bg-white/[0.05] p-1">
+                        {(
+                          [
+                            { id: "after", label: "After" },
+                            { id: "at", label: "At time" },
+                          ] as const
+                        ).map((m) => (
+                          <button
+                            key={m.id}
+                            onClick={() => setTimerMode(m.id)}
+                            className={`relative h-9 rounded-full text-[13px] ${timerMode === m.id ? "text-ink" : "text-muted"}`}
+                          >
+                            {timerMode === m.id && (
+                              <motion.span layoutId={`timer-mode-${device.id}`} transition={springs.snappy} className="absolute inset-0 rounded-full bg-white/[0.14]" />
+                            )}
+                            <span className="relative">{m.label}</span>
+                          </button>
+                        ))}
+                      </div>
+
+                      {timerMode === "after" ? (
+                        <>
+                          <div className="grid grid-cols-4 gap-2">
+                            {quickDurations.map((t) => {
+                              const active = durationSeconds === t.seconds;
+                              return (
+                                <button
+                                  key={t.label}
+                                  onClick={() => setDuration(t.seconds)}
+                                  className={`relative h-10 rounded-full text-[14px] ${active ? "text-[#151515]" : "bg-white/[0.05] text-ink"}`}
+                                >
+                                  {active && (
+                                    <motion.span layoutId={`timer-${device.id}`} transition={springs.snappy} className="absolute inset-0 rounded-full bg-accent" />
+                                  )}
+                                  <span className="relative">{t.label}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {/* Custom duration */}
+                          <div className="flex items-center gap-2">
+                            {[
+                              { label: "h", value: hours, set: setHours, max: 24 },
+                              { label: "min", value: minutes, set: setMinutes, max: 59 },
+                            ].map((f) => (
+                              <label key={f.label} className="flex flex-1 items-center gap-2 rounded-full bg-white/[0.05] px-4 py-2">
+                                <input
+                                  type="number"
+                                  inputMode="numeric"
+                                  min={0}
+                                  max={f.max}
+                                  value={f.value}
+                                  onChange={(e) => f.set(e.target.value.replace(/\D/g, "").slice(0, 2))}
+                                  aria-label={f.label === "h" ? "Hours" : "Minutes"}
+                                  className="w-full bg-transparent text-right text-[17px] tabular-nums text-ink focus:outline-none"
+                                />
+                                <span className="text-[14px] text-muted">{f.label}</span>
+                              </label>
+                            ))}
+                          </div>
+
+                          {/* Repeat */}
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-[15px]">Repeat</p>
+                              <p className="text-[12px] text-muted">
+                                Turn {timerAction.toUpperCase()} every {timerValid ? formatDuration(timerSeconds) : "…"}
+                              </p>
+                            </div>
+                            <Switch checked={repeat} onChange={() => setRepeat(!repeat)} label="Repeat timer" />
+                          </div>
+                        </>
+                      ) : (
+                        <label className="flex items-center justify-between rounded-full bg-white/[0.05] px-5 py-2">
+                          <span className="text-[15px]">Time</span>
+                          <input
+                            type="time"
+                            value={atTime}
+                            onChange={(e) => setAtTime(e.target.value)}
+                            className="bg-transparent text-right text-[17px] tabular-nums text-ink [color-scheme:dark] focus:outline-none"
+                            aria-label="Time of day"
+                          />
+                        </label>
+                      )}
+
+                      <Button onClick={startTimer} disabled={busy || !timerValid} className="w-full py-3 text-[15px]">
+                        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Start Timer"}
+                      </Button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.div>
+            )}
           </div>
         </div>
       )}

@@ -1,7 +1,10 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { Device, NetworkConfig, PowerState, ToastMessage, TestConnectionResponse } from "@/types";
+import { Device, NetworkConfig, PowerState, ToastMessage, TestConnectionResponse, TimerAction } from "@/types";
+import { fetchDeviceStatus, requestCancelTimer, requestStartTimer } from "@/lib/timerClient";
+import { useBackClose } from "@/lib/useBackClose";
+import type { EspStatusEntry } from "@/components/DeviceCard";
 import { DeviceCard } from "@/components/DeviceCard";
 import { AddDeviceModal } from "@/components/AddDeviceModal";
 import { EditDeviceModal } from "@/components/EditDeviceModal";
@@ -59,6 +62,12 @@ export default function HomeControlPage() {
     }
     setActiveTab("All");
   };
+
+  // Android/browser back: close search, then leave Settings or a room filter
+  // before exiting the app.
+  useBackClose(activeTab === "settings", () => setActiveTab("All"));
+  useBackClose(activeTab !== "All" && activeTab !== "settings", () => setActiveTab("All"));
+  useBackClose(showSearch, () => setShowSearch(false));
 
   // Loading & Modal states
   const [isLoadingApp, setIsLoadingApp] = useState(true);
@@ -190,6 +199,81 @@ export default function HomeControlPage() {
       body: JSON.stringify({ deviceId, action: nextState }),
     }).catch(() => {});
   };
+
+  // ESP32 status + timer. The ESP32's /status is the source of truth; the DB only
+  // remembers what the user asked for. Countdowns tick locally from `syncedAt`.
+  const [espStatus, setEspStatus] = useState<Record<string, EspStatusEntry>>({});
+
+  const refreshStatus = useCallback(
+    async (deviceId: string) => {
+      const device = devices.find((d) => d.id === deviceId);
+      if (!device) return;
+      const status = await fetchDeviceStatus(device, networkConfig?.mode);
+      setEspStatus((prev) => ({
+        ...prev,
+        [deviceId]: { reachable: status.reachable, timer: status.timer, syncedAt: Date.now() },
+      }));
+      if (status.reachable) {
+        setDevices((prev) =>
+          prev.map((d) =>
+            d.id === deviceId
+              ? { ...d, powerState: status.power ?? d.powerState, connectionState: "connected" }
+              : d
+          )
+        );
+      }
+    },
+    [devices, networkConfig?.mode]
+  );
+
+  const handleStartTimer = async (deviceId: string, action: TimerAction, seconds: number, repeat: boolean) => {
+    const device = devices.find((d) => d.id === deviceId);
+    if (!device) return;
+    const result = await requestStartTimer(device, networkConfig?.mode, { action, seconds, repeat });
+    updateDevicesState((prev) =>
+      prev.map((d) => (d.id === deviceId ? { ...d, timer: { action, seconds, repeat, startedAt: new Date().toISOString() } } : d))
+    );
+    setEspStatus((prev) => ({
+      ...prev,
+      [deviceId]: {
+        reachable: result.reachable,
+        timer: result.reachable ? result.timer ?? { active: true, action, repeat, seconds, remaining: seconds } : prev[deviceId]?.timer,
+        syncedAt: Date.now(),
+      },
+    }));
+    if (!result.reachable) showToast("error", "Device not reachable", "Timer saved, but the ESP32 didn't respond.");
+  };
+
+  const handleCancelTimer = async (deviceId: string) => {
+    const device = devices.find((d) => d.id === deviceId);
+    if (!device) return;
+    const result = await requestCancelTimer(device, networkConfig?.mode);
+    updateDevicesState((prev) => prev.map((d) => (d.id === deviceId ? { ...d, timer: null } : d)));
+    setEspStatus((prev) => ({
+      ...prev,
+      [deviceId]: { reachable: result.reachable, timer: result.reachable ? { active: false } : prev[deviceId]?.timer, syncedAt: Date.now() },
+    }));
+    if (!result.reachable) showToast("error", "Device not reachable", "The ESP32 didn't confirm the cancel.");
+  };
+
+  // Re-sync devices that have a saved timer: once after load, then every 60 s.
+  const timerDeviceIds = devices
+    .filter((d) => d.timer || espStatus[d.id]?.timer?.active)
+    .map((d) => d.id)
+    .join(",");
+  useEffect(() => {
+    if (!timerDeviceIds) return;
+    const ids = timerDeviceIds.split(",");
+    const sync = () => ids.forEach((id) => void refreshStatus(id));
+    const first = setTimeout(sync, 500);
+    const interval = setInterval(sync, 60_000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(interval);
+    };
+    // refreshStatus changes with `devices`; the id list is the real dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timerDeviceIds]);
 
   // Connection Test
   const handleTestConnection = async (deviceId: string) => {
@@ -593,6 +677,10 @@ export default function HomeControlPage() {
                       onEditDevice={(device) => setEditingDevice(device)}
                       onDeleteDevice={handleDeleteDevice}
                       isActionLoading={false}
+                      espStatus={espStatus[device.id]}
+                      onRefreshStatus={refreshStatus}
+                      onStartTimer={handleStartTimer}
+                      onCancelTimer={handleCancelTimer}
                     />
                   ))}
                 </AnimatePresence>

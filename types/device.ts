@@ -6,6 +6,50 @@ export type PowerState = "on" | "off" | "unknown";
 
 export type ConnectionState = "connected" | "offline" | "checking";
 
+export type TimerAction = "on" | "off";
+
+/**
+ * What the user asked for, as saved in the database. This is NOT proof that
+ * the timer is running; the ESP32 `/status` response is the source of truth.
+ */
+export interface DeviceTimerConfig {
+  action: TimerAction;
+  seconds: number;
+  repeat: boolean;
+  startedAt: string;
+}
+
+/** Timer block of the ESP32 `/status` response. */
+export interface DeviceTimerStatus {
+  active: boolean;
+  action?: TimerAction;
+  repeat?: boolean;
+  seconds?: number;
+  remaining?: number;
+}
+
+export interface DeviceStatusResponse {
+  success: boolean;
+  deviceId: string;
+  reachable: boolean;
+  power?: PowerState;
+  timer?: DeviceTimerStatus;
+  espDevice?: string;
+  uptime?: number;
+  rssi?: number;
+  fetchedAt: string;
+  message?: string;
+}
+
+export interface DeviceTimerResponse {
+  success: boolean;
+  deviceId: string;
+  reachable: boolean;
+  timer?: DeviceTimerStatus;
+  targetUrl: string;
+  message: string;
+}
+
 export interface Device {
   id: string;
   name: string;
@@ -18,6 +62,7 @@ export interface Device {
   powerState: PowerState;
   connectionState: ConnectionState;
   lastSeen?: string;
+  timer?: DeviceTimerConfig | null;
 }
 
 export interface NetworkConfig {

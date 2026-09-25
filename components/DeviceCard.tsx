@@ -1,12 +1,21 @@
 "use client";
 
 import React, { useState } from "react";
-import { motion } from "motion/react";
-import { Device, PowerState } from "@/types";
-import { Lightbulb, Fan, Plug, Cpu, ArrowUpRight } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { Device, DeviceTimerStatus, PowerState, TimerAction } from "@/types";
+import { Lightbulb, Fan, Plug, Cpu, ArrowUpRight, Timer, Repeat } from "lucide-react";
+import { formatCountdown, remainingNow } from "@/lib/timerClient";
+import { useNow } from "@/lib/useNow";
 import { Device3DModal } from "./Device3DModal";
 import { PowerPill } from "./ui/PowerPill";
 import { easeApple, springs } from "@/lib/deviceTheme";
+
+/** Last ESP32 /status result for a device, kept by the page. */
+export interface EspStatusEntry {
+  reachable: boolean;
+  timer?: DeviceTimerStatus;
+  syncedAt: number;
+}
 
 interface DeviceCardProps {
   device: Device;
@@ -17,6 +26,10 @@ interface DeviceCardProps {
   isActionLoading?: boolean;
   /** Position in the grid, used to stagger the entrance. */
   index?: number;
+  espStatus?: EspStatusEntry;
+  onRefreshStatus?: (deviceId: string) => Promise<void>;
+  onStartTimer?: (deviceId: string, action: TimerAction, seconds: number, repeat: boolean) => Promise<void>;
+  onCancelTimer?: (deviceId: string) => Promise<void>;
 }
 
 export const deviceIcons = { light: Lightbulb, fan: Fan, plug: Plug, other: Cpu };
@@ -29,6 +42,10 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
   onDeleteDevice,
   isActionLoading = false,
   index = 0,
+  espStatus,
+  onRefreshStatus,
+  onStartTimer,
+  onCancelTimer,
 }) => {
   const [isDetailOpen, setIsDetailOpen] = useState(false);
 
@@ -36,6 +53,9 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
   const isConnected = device.connectionState === "connected";
   const Icon = deviceIcons[device.type] ?? Cpu;
   const toggle = () => !isActionLoading && onTogglePower(device.id, device.powerState);
+  const timerActive = !!espStatus?.timer?.active;
+  const now = useNow(timerActive);
+  const left = remainingNow(espStatus?.timer, espStatus?.syncedAt ?? 0, now);
 
   return (
     <>
@@ -98,6 +118,19 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
               {device.room}
             </p>
             <h3 className="mt-0.5 line-clamp-2 text-[18px] font-medium leading-snug text-ink">{device.name}</h3>
+            <AnimatePresence initial={false}>
+              {timerActive && (
+                <motion.p
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-2.5 py-1 text-[12px] font-medium text-accent"
+                >
+                  {espStatus?.timer?.repeat ? <Repeat className="h-3 w-3" /> : <Timer className="h-3 w-3" />}
+                  {espStatus?.timer?.action === "on" ? "On" : "Off"} in <span className="tabular-nums">{formatCountdown(left)}</span>
+                </motion.p>
+              )}
+            </AnimatePresence>
           </div>
 
           <div className="relative mt-auto flex justify-end">
@@ -114,6 +147,10 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
         onTestConnection={onTestConnection}
         onEditDevice={onEditDevice}
         onDeleteDevice={onDeleteDevice}
+        espStatus={espStatus}
+        onRefreshStatus={onRefreshStatus}
+        onStartTimer={onStartTimer}
+        onCancelTimer={onCancelTimer}
       />
     </>
   );
