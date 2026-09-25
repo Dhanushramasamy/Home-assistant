@@ -1,11 +1,12 @@
-import { getDeviceById, updateDevice, saveDeviceTimer } from "./deviceStore";
+import { getDeviceById, updateDevice, addTimerRecord, closeTimerRecords, reconcileTimerRecords } from "./deviceStore";
+import { parseTimerEntry, parseTimers, reasonFromStatus, timerErrorMessage } from "./timerParse";
 import { getNetworkConfig } from "./networkStore";
 import {
   Device,
   DeviceControlResponse,
   DeviceStatusResponse,
   DeviceTimerResponse,
-  DeviceTimerStatus,
+  DeviceTimerEntry,
   NetworkConfig,
   TestConnectionResponse,
   TimerAction,
@@ -303,14 +304,19 @@ export async function testDeviceReachability(
 }
 
 /* ------------------------------------------------------------------ */
-/* ESP32 timer + status                                                */
+/* ESP32 timers + status                                               */
 /* ------------------------------------------------------------------ */
 
 /** ESP32 paths the app is allowed to call for timers/status. */
-export type EspTimerPath = "status" | "timer" | "timer/cancel";
+export type EspTimerPath = "status" | "timers" | "timer" | "timer/cancel" | "timer/clear";
 
 interface EspResult {
+  /** The ESP32 answered with HTTP (even if it rejected the request). */
+  reached: boolean;
+  /** HTTP 2xx and the body did not say ok:false. */
   ok: boolean;
+  /** HTTP status from the ESP32 (0 if it wasn't reached). */
+  status: number;
   json: Record<string, unknown> | null;
   targetUrl: string;
   error?: string;
@@ -339,7 +345,7 @@ async function espRequest(
       const targetUrl = `http://${device.ip}/${espPath}`;
       const response = await fetch(targetUrl, { method: "GET", signal: controller.signal, cache: "no-store" });
       const json = await response.json().catch(() => null);
-      return { ok: response.ok && json?.ok !== false, json, targetUrl };
+      return { reached: true, ok: response.ok && json?.ok !== false, status: response.status, json, targetUrl };
     }
 
     const gatewayHost = networkConfig.gatewayIp || "192.168.1.100";
@@ -354,11 +360,13 @@ async function espRequest(
     });
     const body = await response.json().catch(() => null);
     const json = (body?.esp as Record<string, unknown> | undefined) ?? null;
-    return { ok: response.ok && !!json && json.ok !== false, json, targetUrl };
+    return { reached: !!json, ok: response.ok && !!json && json.ok !== false, status: json ? response.status : 0, json, targetUrl };
   } catch (err) {
     const isAbort = err instanceof Error && err.name === "AbortError";
     return {
+      reached: false,
       ok: false,
+      status: 0,
       json: null,
       targetUrl: `http://${device.ip}/${espPath}`,
       error: isAbort ? "Connection timed out" : (err as Error)?.message || "Network unreachable",
@@ -368,19 +376,12 @@ async function espRequest(
   }
 }
 
-function parseTimer(raw: unknown): DeviceTimerStatus | undefined {
-  if (!raw || typeof raw !== "object") return undefined;
-  const t = raw as Record<string, unknown>;
-  return {
-    active: t.active === true,
-    action: t.action === "on" || t.action === "off" ? t.action : undefined,
-    repeat: typeof t.repeat === "boolean" ? t.repeat : undefined,
-    seconds: typeof t.seconds === "number" ? t.seconds : undefined,
-    remaining: typeof t.remaining === "number" ? t.remaining : undefined,
-  };
-}
-
-/** Reads `/status` from the ESP32. Its answer is the truth for power + timer. */
+/**
+ * Reads `/status` from the ESP32 (falls back to `/timers` if status has no
+ * timer list). The ESP32 is the truth for power and running timers; the DB is
+ * reconciled to it. Offline devices keep their saved records, reported as
+ * `savedTimers`, and are never shown as running.
+ */
 export async function getDeviceStatus(deviceId: string): Promise<DeviceStatusResponse> {
   const device = await getDeviceById(deviceId);
   const fetchedAt = new Date().toISOString();
@@ -391,28 +392,72 @@ export async function getDeviceStatus(deviceId: string): Promise<DeviceStatusRes
   const networkConfig = await getNetworkConfig();
   const res = await espRequest(device, networkConfig, "status");
   if (!res.ok || !res.json) {
-    return { success: true, deviceId, reachable: false, fetchedAt, message: res.error || "ESP32 did not return status." };
+    if (device.connectionState !== "offline") await updateDevice(device.id, { connectionState: "offline" });
+    return {
+      success: true,
+      deviceId,
+      reachable: false,
+      savedTimers: device.timers ?? [],
+      fetchedAt,
+      message: timerErrorMessage("offline", device.name),
+    };
   }
 
-  const power = res.json.power === "on" || res.json.power === "off" ? (res.json.power as PowerState) : undefined;
+  let timers = parseTimers(res.json);
+  if (timers === undefined) {
+    const list = await espRequest(device, networkConfig, "timers");
+    timers = list.ok ? parseTimers(list.json) ?? [] : [];
+  }
+
+  return applyDeviceReport(device.id, {
+    power: res.json.power,
+    timers,
+    raw: res.json,
+    fetchedAt,
+  });
+}
+
+/**
+ * Applies a status report (read by the server, or by the browser and posted
+ * back) to the app: device power/online state and timer records.
+ */
+export async function applyDeviceReport(
+  deviceId: string,
+  report: { power?: unknown; timers: DeviceTimerEntry[]; raw?: Record<string, unknown>; fetchedAt?: string }
+): Promise<DeviceStatusResponse> {
+  const device = await getDeviceById(deviceId);
+  const fetchedAt = report.fetchedAt ?? new Date().toISOString();
+  if (!device) {
+    return { success: false, deviceId, reachable: false, fetchedAt, message: "Device not found." };
+  }
+
+  const power = report.power === "on" || report.power === "off" ? (report.power as PowerState) : undefined;
   if ((power && power !== device.powerState) || device.connectionState !== "connected") {
     await updateDevice(device.id, { ...(power ? { powerState: power } : {}), connectionState: "connected" });
   }
+
+  await reconcileTimerRecords(device.id, report.timers.map((t) => t.id));
+  const saved = (await getDeviceById(device.id))?.timers ?? [];
+  const raw = report.raw ?? {};
 
   return {
     success: true,
     deviceId,
     reachable: true,
     power,
-    timer: parseTimer(res.json.timer) ?? { active: false },
-    espDevice: typeof res.json.device === "string" ? res.json.device : undefined,
-    uptime: typeof res.json.uptime === "number" ? res.json.uptime : undefined,
-    rssi: typeof res.json.rssi === "number" ? res.json.rssi : undefined,
+    timers: report.timers,
+    timerCount: typeof raw.timerCount === "number" ? raw.timerCount : report.timers.length,
+    relay: typeof raw.relay === "number" ? raw.relay : undefined,
+    ip: typeof raw.ip === "string" ? raw.ip : undefined,
+    espDevice: typeof raw.device === "string" ? raw.device : undefined,
+    uptime: typeof raw.uptime === "number" ? raw.uptime : undefined,
+    rssi: typeof raw.rssi === "number" ? raw.rssi : undefined,
+    savedTimers: saved,
     fetchedAt,
   };
 }
 
-/** Saves the requested timer, then asks the ESP32 to run it. */
+/** Creates a new timer on the ESP32 (existing timers keep running), then records it. */
 export async function startDeviceTimer(
   deviceId: string,
   action: TimerAction,
@@ -421,48 +466,102 @@ export async function startDeviceTimer(
 ): Promise<DeviceTimerResponse> {
   const device = await getDeviceById(deviceId);
   if (!device) {
-    return { success: false, deviceId, reachable: false, targetUrl: "N/A", message: "Device not found." };
+    return { success: false, deviceId, reachable: false, reason: "error", targetUrl: "N/A", message: "Device not found." };
   }
-
-  await saveDeviceTimer(device.id, { action, seconds, repeat, startedAt: new Date().toISOString() });
 
   const networkConfig = await getNetworkConfig();
   const query: Record<string, string> = { action, seconds: String(seconds) };
   if (repeat) query.repeat = "true";
   const res = await espRequest(device, networkConfig, "timer", query);
 
+  if (!res.ok) {
+    const reason = res.reached ? reasonFromStatus(res.status) : "offline";
+    return { success: false, deviceId, reachable: res.reached, reason, targetUrl: res.targetUrl, message: timerErrorMessage(reason, device.name) };
+  }
+
+  const created = parseTimerEntry(res.json?.timer) ?? undefined;
+  await addTimerRecord(device.id, { espId: created?.id, action, seconds, repeat, startedAt: new Date().toISOString() });
+
   return {
     success: true,
     deviceId,
-    reachable: res.ok,
-    timer: res.ok ? parseTimer(res.json?.timer) ?? { active: true, action, repeat, seconds, remaining: seconds } : undefined,
+    reachable: true,
+    created,
+    timers: parseTimers(res.json),
     targetUrl: res.targetUrl,
-    message: res.ok
-      ? `Timer set on ${device.name}: ${action.toUpperCase()} ${repeat ? "every" : "after"} ${seconds}s.`
-      : `Timer saved, but ${device.name} could not be reached (${res.error || "no response"}).`,
+    message: `Timer added on ${device.name}.`,
   };
 }
 
-/** Clears the saved timer and asks the ESP32 to cancel it. */
-export async function cancelDeviceTimer(deviceId: string): Promise<DeviceTimerResponse> {
+/** Cancels one timer by the id the ESP32 gave it. */
+export async function cancelDeviceTimer(deviceId: string, timerId: number): Promise<DeviceTimerResponse> {
   const device = await getDeviceById(deviceId);
   if (!device) {
-    return { success: false, deviceId, reachable: false, targetUrl: "N/A", message: "Device not found." };
+    return { success: false, deviceId, reachable: false, reason: "error", targetUrl: "N/A", message: "Device not found." };
   }
 
-  await saveDeviceTimer(device.id, null);
-
   const networkConfig = await getNetworkConfig();
-  const res = await espRequest(device, networkConfig, "timer/cancel");
+  const res = await espRequest(device, networkConfig, "timer/cancel", { id: String(timerId) });
+
+  if (res.ok || (res.reached && res.status === 404)) {
+    // 404 = the ESP32 no longer has it (fired or lost); either way it's not running.
+    await closeTimerRecords(device.id, [timerId], res.ok ? "cancelled" : "ended");
+  }
+  if (!res.ok) {
+    const reason = res.reached ? reasonFromStatus(res.status) : "offline";
+    return { success: false, deviceId, reachable: res.reached, reason, targetUrl: res.targetUrl, message: timerErrorMessage(reason, device.name) };
+  }
 
   return {
     success: true,
     deviceId,
-    reachable: res.ok,
-    timer: res.ok ? { active: false } : undefined,
+    reachable: true,
+    timers: parseTimers(res.json),
     targetUrl: res.targetUrl,
-    message: res.ok
-      ? `Timer cancelled on ${device.name}.`
-      : `Timer cleared in the app, but ${device.name} could not be reached (${res.error || "no response"}).`,
+    message: `Timer cancelled on ${device.name}.`,
   };
+}
+
+/** Clears every timer on the ESP32 (`/timer/clear`). */
+export async function clearDeviceTimers(deviceId: string): Promise<DeviceTimerResponse> {
+  const device = await getDeviceById(deviceId);
+  if (!device) {
+    return { success: false, deviceId, reachable: false, reason: "error", targetUrl: "N/A", message: "Device not found." };
+  }
+
+  const networkConfig = await getNetworkConfig();
+  const res = await espRequest(device, networkConfig, "timer/clear");
+  if (!res.ok) {
+    const reason = res.reached ? reasonFromStatus(res.status) : "offline";
+    return { success: false, deviceId, reachable: res.reached, reason, targetUrl: res.targetUrl, message: timerErrorMessage(reason, device.name) };
+  }
+
+  await closeTimerRecords(device.id, "all", "cancelled");
+  return { success: true, deviceId, reachable: true, timers: [], targetUrl: res.targetUrl, message: `All timers cleared on ${device.name}.` };
+}
+
+/**
+ * Records the result of a timer call the browser made directly to the ESP32
+ * (used when the server can't reach the device). Keeps the DB in sync.
+ */
+export async function recordBrowserTimerResult(
+  deviceId: string,
+  change:
+    | { type: "created"; espId?: number; action: TimerAction; seconds: number; repeat: boolean }
+    | { type: "cancelled"; espId: number }
+    | { type: "cleared" }
+): Promise<void> {
+  if (change.type === "created") {
+    await addTimerRecord(deviceId, {
+      espId: change.espId,
+      action: change.action,
+      seconds: change.seconds,
+      repeat: change.repeat,
+      startedAt: new Date().toISOString(),
+    });
+  } else if (change.type === "cancelled") {
+    await closeTimerRecords(deviceId, [change.espId], "cancelled");
+  } else {
+    await closeTimerRecords(deviceId, "all", "cancelled");
+  }
 }

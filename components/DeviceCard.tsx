@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Device, DeviceTimerStatus, PowerState, TimerAction } from "@/types";
+import { Device, DeviceTimerEntry, PowerState, TimerAction } from "@/types";
 import { Lightbulb, Fan, Plug, Cpu, ArrowUpRight, Timer, Repeat } from "lucide-react";
 import { formatCountdown, remainingNow } from "@/lib/timerClient";
 import { useNow } from "@/lib/useNow";
@@ -13,7 +13,11 @@ import { easeApple, springs } from "@/lib/deviceTheme";
 /** Last ESP32 /status result for a device, kept by the page. */
 export interface EspStatusEntry {
   reachable: boolean;
-  timer?: DeviceTimerStatus;
+  /** Timers the ESP32 reported as running at `syncedAt` (empty when offline). */
+  timers: DeviceTimerEntry[];
+  timerCount?: number;
+  /** Firmware device name, e.g. "ESP200". */
+  espDevice?: string;
   syncedAt: number;
 }
 
@@ -29,7 +33,8 @@ interface DeviceCardProps {
   espStatus?: EspStatusEntry;
   onRefreshStatus?: (deviceId: string) => Promise<void>;
   onStartTimer?: (deviceId: string, action: TimerAction, seconds: number, repeat: boolean) => Promise<void>;
-  onCancelTimer?: (deviceId: string) => Promise<void>;
+  onCancelTimer?: (deviceId: string, timerId: number) => Promise<void>;
+  onClearTimers?: (deviceId: string) => Promise<void>;
 }
 
 export const deviceIcons = { light: Lightbulb, fan: Fan, plug: Plug, other: Cpu };
@@ -46,16 +51,21 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
   onRefreshStatus,
   onStartTimer,
   onCancelTimer,
+  onClearTimers,
 }) => {
   const [isDetailOpen, setIsDetailOpen] = useState(false);
 
   const isOn = device.powerState === "on";
-  const isConnected = device.connectionState === "connected";
+  const isConnected = espStatus ? espStatus.reachable : device.connectionState === "connected";
+  const savedCount = device.timers?.length ?? 0;
   const Icon = deviceIcons[device.type] ?? Cpu;
   const toggle = () => !isActionLoading && onTogglePower(device.id, device.powerState);
-  const timerActive = !!espStatus?.timer?.active;
-  const now = useNow(timerActive);
-  const left = remainingNow(espStatus?.timer, espStatus?.syncedAt ?? 0, now);
+  const timers = espStatus?.timers ?? [];
+  const now = useNow(timers.length > 0);
+  // Show the timer that fires next; "+N" for the rest.
+  const next = timers
+    .map((t) => ({ t, left: remainingNow(t, espStatus?.syncedAt ?? 0, now) }))
+    .sort((a, b) => a.left - b.left)[0];
 
   return (
     <>
@@ -119,15 +129,28 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
             </p>
             <h3 className="mt-0.5 line-clamp-2 text-[18px] font-medium leading-snug text-ink">{device.name}</h3>
             <AnimatePresence initial={false}>
-              {timerActive && (
+              {next && (
                 <motion.p
                   initial={{ opacity: 0, y: 4 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0 }}
                   className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-2.5 py-1 text-[12px] font-medium text-accent"
                 >
-                  {espStatus?.timer?.repeat ? <Repeat className="h-3 w-3" /> : <Timer className="h-3 w-3" />}
-                  {espStatus?.timer?.action === "on" ? "On" : "Off"} in <span className="tabular-nums">{formatCountdown(left)}</span>
+                  {next.t.repeat ? <Repeat className="h-3 w-3" /> : <Timer className="h-3 w-3" />}
+                  {next.t.action === "on" ? "On" : "Off"} in <span className="tabular-nums">{formatCountdown(next.left)}</span>
+                  {timers.length > 1 && <span className="opacity-70">+{timers.length - 1}</span>}
+                </motion.p>
+              )}
+              {!next && espStatus && !espStatus.reachable && savedCount > 0 && (
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-white/[0.06] px-2.5 py-1 text-[12px] text-muted"
+                  title="Saved in the app; can't confirm on the device while it's offline"
+                >
+                  <Timer className="h-3 w-3" />
+                  {savedCount} saved · offline
                 </motion.p>
               )}
             </AnimatePresence>
@@ -151,6 +174,7 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
         onRefreshStatus={onRefreshStatus}
         onStartTimer={onStartTimer}
         onCancelTimer={onCancelTimer}
+        onClearTimers={onClearTimers}
       />
     </>
   );

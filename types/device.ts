@@ -11,21 +11,31 @@ export type TimerAction = "on" | "off";
 /**
  * What the user asked for, as saved in the database. This is NOT proof that
  * the timer is running; the ESP32 `/status` response is the source of truth.
+ * `espId` is the id the ESP32 returned when the timer was created.
  */
 export interface DeviceTimerConfig {
+  /** Row id in device_timer_PRB_home_assistant, when stored there. */
+  recordId?: string;
+  espId?: number;
   action: TimerAction;
   seconds: number;
   repeat: boolean;
   startedAt: string;
 }
 
-/** Timer block of the ESP32 `/status` response. */
-export interface DeviceTimerStatus {
+/** Most timers one ESP32 runs at once (firmware limit). */
+export const MAX_ESP_TIMERS = 10;
+/** Longest timer the firmware accepts, in seconds (24 h). */
+export const MAX_TIMER_SECONDS = 86400;
+
+/** One running timer, as reported by the ESP32. */
+export interface DeviceTimerEntry {
+  id: number;
   active: boolean;
-  action?: TimerAction;
-  repeat?: boolean;
-  seconds?: number;
-  remaining?: number;
+  action: TimerAction;
+  repeat: boolean;
+  seconds: number;
+  remaining: number;
 }
 
 export interface DeviceStatusResponse {
@@ -33,10 +43,15 @@ export interface DeviceStatusResponse {
   deviceId: string;
   reachable: boolean;
   power?: PowerState;
-  timer?: DeviceTimerStatus;
+  timers?: DeviceTimerEntry[];
+  timerCount?: number;
+  relay?: number;
+  ip?: string;
   espDevice?: string;
   uptime?: number;
   rssi?: number;
+  /** Timers the DB still has as scheduled (after reconciling, if reachable). */
+  savedTimers?: DeviceTimerConfig[];
   fetchedAt: string;
   message?: string;
 }
@@ -45,7 +60,12 @@ export interface DeviceTimerResponse {
   success: boolean;
   deviceId: string;
   reachable: boolean;
-  timer?: DeviceTimerStatus;
+  /** The timer that was created (start) */
+  created?: DeviceTimerEntry;
+  /** Timers still running on the device after the call, when known */
+  timers?: DeviceTimerEntry[];
+  /** Why it failed, for the UI: offline | invalid | not_found | limit | error */
+  reason?: "offline" | "invalid" | "not_found" | "limit" | "error";
   targetUrl: string;
   message: string;
 }
@@ -62,7 +82,8 @@ export interface Device {
   powerState: PowerState;
   connectionState: ConnectionState;
   lastSeen?: string;
-  timer?: DeviceTimerConfig | null;
+  /** Timers the user configured (see DeviceTimerConfig). */
+  timers?: DeviceTimerConfig[];
 }
 
 export interface NetworkConfig {

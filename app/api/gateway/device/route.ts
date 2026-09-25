@@ -29,7 +29,7 @@ export async function POST(request: Request) {
     // Forward timer/status calls to the ESP32 and return its JSON as `esp`
     if (action === "esp") {
       const { path, query } = body as { path?: string; query?: Record<string, string> };
-      if (path !== "status" && path !== "timer" && path !== "timer/cancel") {
+      if (!["status", "timers", "timer", "timer/cancel", "timer/clear"].includes(path ?? "")) {
         return NextResponse.json({ error: "Unsupported ESP32 path" }, { status: 400 });
       }
       const qs = new URLSearchParams(query || {}).toString();
@@ -39,7 +39,7 @@ export async function POST(request: Request) {
       try {
         const espResponse = await fetch(forwardUrl, { method: "GET", signal: espController.signal, cache: "no-store" });
         const esp = await espResponse.json().catch(() => null);
-        return NextResponse.json({ success: espResponse.ok, deviceId: device.id, forwardedUrl: forwardUrl, esp }, { status: espResponse.ok ? 200 : 502 });
+        return NextResponse.json({ success: espResponse.ok, deviceId: device.id, forwardedUrl: forwardUrl, esp }, { status: espResponse.status });
       } catch {
         return NextResponse.json({ success: false, deviceId: device.id, forwardedUrl: forwardUrl, esp: null }, { status: 504 });
       } finally {

@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Device, PowerState, TimerAction } from "@/types";
+import { Device, MAX_ESP_TIMERS, MAX_TIMER_SECONDS, PowerState, TimerAction } from "@/types";
 import { Dynamic3DCanvas } from "./3d/Dynamic3DCanvas";
 import {
   ChevronLeft,
@@ -19,6 +19,9 @@ import {
   CircuitBoard,
   Server,
   Loader2,
+  X,
+  Timer as TimerIcon,
+  Repeat,
   type LucideIcon,
 } from "lucide-react";
 import { ModalShell } from "./ui/ModalShell";
@@ -41,7 +44,8 @@ interface Device3DModalProps {
   espStatus?: EspStatusEntry;
   onRefreshStatus?: (deviceId: string) => Promise<void>;
   onStartTimer?: (deviceId: string, action: TimerAction, seconds: number, repeat: boolean) => Promise<void>;
-  onCancelTimer?: (deviceId: string) => Promise<void>;
+  onCancelTimer?: (deviceId: string, timerId: number) => Promise<void>;
+  onClearTimers?: (deviceId: string) => Promise<void>;
 }
 
 const icons = { light: Lightbulb, fan: Fan, plug: Plug, other: Cpu };
@@ -53,10 +57,9 @@ const quickDurations = [
   { label: "1h", seconds: 60 * 60 },
   { label: "2h", seconds: 2 * 60 * 60 },
 ];
-const MAX_TIMER_SECONDS = 24 * 60 * 60;
 
-// How often to re-sync with the ESP32 while the sheet is open (countdown ticks locally).
-const SYNC_MS = 30_000;
+// Re-sync with the ESP32 this often while the sheet is open (countdown ticks locally).
+const SYNC_MS = 15_000;
 
 export const Device3DModal: React.FC<Device3DModalProps> = ({
   device,
@@ -70,31 +73,40 @@ export const Device3DModal: React.FC<Device3DModalProps> = ({
   onRefreshStatus,
   onStartTimer,
   onCancelTimer,
+  onClearTimers,
 }) => {
   const [showMenu, setShowMenu] = useState(false);
   const [timerAction, setTimerAction] = useState<TimerAction>("off");
   const [timerMode, setTimerMode] = useState<"after" | "at">("after");
   const [hours, setHours] = useState("0");
   const [minutes, setMinutes] = useState("10");
+  const [secondsField, setSecondsField] = useState("0");
   const [atTime, setAtTime] = useState("22:00");
   const [repeat, setRepeat] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [cancelling, setCancelling] = useState<number | "all" | null>(null);
 
   const deviceId = device?.id;
-  const timer = espStatus?.timer;
-  const timerActive = !!timer?.active;
-  const now = useNow(isOpen && timerActive);
-  const left = remainingNow(timer, espStatus?.syncedAt ?? 0, now);
+  const timers = espStatus?.timers ?? [];
+  const now = useNow(isOpen && timers.length > 0);
+  // Running timers with their local countdown, soonest first.
+  const running = timers
+    .map((t) => ({ t, left: remainingNow(t, espStatus?.syncedAt ?? 0, now) }))
+    .sort((a, b) => a.left - b.left);
+  const slotsFull = timers.length >= MAX_ESP_TIMERS;
+  const offline = !!espStatus && !espStatus.reachable;
+  const savedTimers = device?.timers ?? [];
 
   // Seconds sent to the ESP32: a custom duration, or the time until a clock time.
-  const clock = useNow(isOpen && !timerActive && timerMode === "at");
-  const durationSeconds = (Number(hours) || 0) * 3600 + (Number(minutes) || 0) * 60;
+  const clock = useNow(isOpen && timerMode === "at");
+  const durationSeconds = (Number(hours) || 0) * 3600 + (Number(minutes) || 0) * 60 + (Number(secondsField) || 0);
   const timerSeconds = timerMode === "at" ? secondsUntilClock(atTime, clock) : durationSeconds;
   const useRepeat = repeat && timerMode === "after";
-  const timerValid = timerSeconds >= 60 && timerSeconds <= MAX_TIMER_SECONDS;
+  const timerValid = Number.isInteger(timerSeconds) && timerSeconds >= 1 && timerSeconds <= MAX_TIMER_SECONDS;
   const setDuration = (secs: number) => {
     setHours(String(Math.floor(secs / 3600)));
     setMinutes(String(Math.floor((secs % 3600) / 60)));
+    setSecondsField(String(secs % 60));
   };
 
   // Sync with the ESP32 when the sheet opens, then every 30 s while it stays open.
@@ -105,8 +117,8 @@ export const Device3DModal: React.FC<Device3DModalProps> = ({
     return () => clearInterval(id);
   }, [isOpen, deviceId, onRefreshStatus]);
 
-  // When a one-shot timer reaches zero, re-check so power + timer come from the ESP32.
-  const expired = isOpen && timerActive && !timer?.repeat && left === 0;
+  // When any one-shot timer reaches zero, re-check so power + timers come from the ESP32.
+  const expired = isOpen && running.some(({ t, left }) => !t.repeat && left === 0);
   useEffect(() => {
     if (!expired || !deviceId || !onRefreshStatus) return;
     const id = setTimeout(() => void onRefreshStatus(deviceId), 2000);
@@ -119,17 +131,22 @@ export const Device3DModal: React.FC<Device3DModalProps> = ({
   const isConnected = espStatus ? espStatus.reachable : device?.connectionState === "connected";
 
   const startTimer = async () => {
-    if (!device || !onStartTimer) return;
+    if (!device || !onStartTimer || !timerValid) return;
     setBusy(true);
-    if (!timerValid) return;
     await onStartTimer(device.id, timerAction, timerSeconds, useRepeat);
     setBusy(false);
   };
-  const cancelTimer = async () => {
+  const cancelTimer = async (timerId: number) => {
     if (!device || !onCancelTimer) return;
-    setBusy(true);
-    await onCancelTimer(device.id);
-    setBusy(false);
+    setCancelling(timerId);
+    await onCancelTimer(device.id, timerId);
+    setCancelling(null);
+  };
+  const clearTimers = async () => {
+    if (!device || !onClearTimers) return;
+    setCancelling("all");
+    await onClearTimers(device.id);
+    setCancelling(null);
   };
 
   const menuItems = device
@@ -287,166 +304,208 @@ export const Device3DModal: React.FC<Device3DModalProps> = ({
               )}
             </motion.div>
 
-            {/* Timer (runs on the ESP32) */}
+            {/* Timers (run on the ESP32; several can run at once) */}
             {onStartTimer && (
               <motion.div {...stagger(3)} className="glass space-y-4 rounded-[28px] px-5 py-4">
-                <AnimatePresence mode="wait" initial={false}>
-                  {timerActive ? (
-                    <motion.div
-                      key="active"
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -8 }}
-                      transition={{ duration: 0.25, ease: easeApple }}
-                      className="space-y-4"
-                    >
-                      <div>
-                        <p className="text-[17px]">Timer</p>
-                        <p className="text-[13px] text-muted">
-                          {timer?.repeat && timer.seconds
-                            ? `${timer.action === "on" ? "ON" : "OFF"} every ${formatDuration(timer.seconds)} · next in`
-                            : `${timer?.action === "on" ? "ON" : "OFF"} in`}
-                        </p>
-                      </div>
-                      <p className="text-center text-[48px] font-medium leading-none tabular-nums tracking-tight text-accent">
-                        {formatCountdown(left)}
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[17px]">Timers</p>
+                    {offline && (
+                      <p className="text-[12px] text-danger">
+                        {espStatus?.espDevice ?? device.name} is offline. Running timers can&apos;t be confirmed.
                       </p>
-                      <Button variant="danger" onClick={cancelTimer} disabled={busy} className="w-full py-3 text-[15px]">
-                        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Cancel Timer"}
-                      </Button>
-                    </motion.div>
-                  ) : (
+                    )}
+                  </div>
+                  {!offline && (
+                    <span className="pt-1 text-[13px] text-muted">
+                      {espStatus ? `${running.length} of ${MAX_ESP_TIMERS} running` : "Checking device…"}
+                    </span>
+                  )}
+                </div>
+
+                {/* Running timers */}
+                <AnimatePresence initial={false}>
+                  {running.map(({ t, left }) => (
                     <motion.div
-                      key="setup"
+                      key={t.id}
+                      layout
                       initial={{ opacity: 0, y: 8 }}
                       animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -8 }}
+                      exit={{ opacity: 0, x: 24 }}
                       transition={{ duration: 0.25, ease: easeApple }}
-                      className="space-y-4"
+                      className="flex items-center justify-between gap-3 rounded-[20px] bg-white/[0.05] px-4 py-3"
                     >
-                      <div>
-                        <p className="text-[17px]">Timer</p>
-                        {espStatus && !espStatus.reachable && (
-                          <p className="text-[12px] text-danger">Device not reachable right now</p>
-                        )}
-                        <p className="text-[13px] text-muted">
-                          {!timerValid
-                              ? "Choose between 1 minute and 24 hours"
-                              : timerMode === "at"
-                                ? `Turn ${timerAction.toUpperCase()} at ${atTime} · in ${formatDuration(Math.round(timerSeconds / 60) * 60)}`
-                                : `Turn ${timerAction.toUpperCase()} ${useRepeat ? "every" : "after"} ${formatDuration(timerSeconds)}`}
-                        </p>
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="glass-btn flex h-9 w-9 shrink-0 items-center justify-center rounded-full">
+                          {t.repeat ? <Repeat className="h-4 w-4 text-accent" /> : <TimerIcon className="h-4 w-4 text-accent" />}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-[13px] text-muted">
+                            Timer #{t.id} · <span className="text-ink">Turn {t.action.toUpperCase()}</span>
+                          </p>
+                          <p className="mt-0.5 text-[22px] font-medium leading-none tabular-nums text-accent" aria-label="Remaining">
+                            {formatCountdown(left)}
+                          </p>
+                          <p className="mt-1 truncate text-[12px] text-muted">
+                            {t.repeat ? `Repeating every ${formatDuration(t.seconds)}` : "One-time"}
+                          </p>
+                        </div>
                       </div>
-
-                      {/* Action */}
-                      <div className="grid grid-cols-2 gap-1 rounded-full bg-white/[0.05] p-1">
-                        {(["on", "off"] as const).map((a) => (
-                          <button
-                            key={a}
-                            onClick={() => setTimerAction(a)}
-                            className={`relative h-10 rounded-full text-[14px] ${timerAction === a ? "text-[#151515]" : "text-ink"}`}
-                          >
-                            {timerAction === a && (
-                              <motion.span layoutId={`timer-action-${device.id}`} transition={springs.snappy} className="absolute inset-0 rounded-full bg-white" />
-                            )}
-                            <span className="relative">Turn {a === "on" ? "On" : "Off"}</span>
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* When: after a duration, or at a clock time */}
-                      <div className="grid grid-cols-2 gap-1 rounded-full bg-white/[0.05] p-1">
-                        {(
-                          [
-                            { id: "after", label: "After" },
-                            { id: "at", label: "At time" },
-                          ] as const
-                        ).map((m) => (
-                          <button
-                            key={m.id}
-                            onClick={() => setTimerMode(m.id)}
-                            className={`relative h-9 rounded-full text-[13px] ${timerMode === m.id ? "text-ink" : "text-muted"}`}
-                          >
-                            {timerMode === m.id && (
-                              <motion.span layoutId={`timer-mode-${device.id}`} transition={springs.snappy} className="absolute inset-0 rounded-full bg-white/[0.14]" />
-                            )}
-                            <span className="relative">{m.label}</span>
-                          </button>
-                        ))}
-                      </div>
-
-                      {timerMode === "after" ? (
-                        <>
-                          <div className="grid grid-cols-4 gap-2">
-                            {quickDurations.map((t) => {
-                              const active = durationSeconds === t.seconds;
-                              return (
-                                <button
-                                  key={t.label}
-                                  onClick={() => setDuration(t.seconds)}
-                                  className={`relative h-10 rounded-full text-[14px] ${active ? "text-[#151515]" : "bg-white/[0.05] text-ink"}`}
-                                >
-                                  {active && (
-                                    <motion.span layoutId={`timer-${device.id}`} transition={springs.snappy} className="absolute inset-0 rounded-full bg-accent" />
-                                  )}
-                                  <span className="relative">{t.label}</span>
-                                </button>
-                              );
-                            })}
-                          </div>
-
-                          {/* Custom duration */}
-                          <div className="flex items-center gap-2">
-                            {[
-                              { label: "h", value: hours, set: setHours, max: 24 },
-                              { label: "min", value: minutes, set: setMinutes, max: 59 },
-                            ].map((f) => (
-                              <label key={f.label} className="flex flex-1 items-center gap-2 rounded-full bg-white/[0.05] px-4 py-2">
-                                <input
-                                  type="number"
-                                  inputMode="numeric"
-                                  min={0}
-                                  max={f.max}
-                                  value={f.value}
-                                  onChange={(e) => f.set(e.target.value.replace(/\D/g, "").slice(0, 2))}
-                                  aria-label={f.label === "h" ? "Hours" : "Minutes"}
-                                  className="w-full bg-transparent text-right text-[17px] tabular-nums text-ink focus:outline-none"
-                                />
-                                <span className="text-[14px] text-muted">{f.label}</span>
-                              </label>
-                            ))}
-                          </div>
-
-                          {/* Repeat */}
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="text-[15px]">Repeat</p>
-                              <p className="text-[12px] text-muted">
-                                Turn {timerAction.toUpperCase()} every {timerValid ? formatDuration(timerSeconds) : "…"}
-                              </p>
-                            </div>
-                            <Switch checked={repeat} onChange={() => setRepeat(!repeat)} label="Repeat timer" />
-                          </div>
-                        </>
-                      ) : (
-                        <label className="flex items-center justify-between rounded-full bg-white/[0.05] px-5 py-2">
-                          <span className="text-[15px]">Time</span>
-                          <input
-                            type="time"
-                            value={atTime}
-                            onChange={(e) => setAtTime(e.target.value)}
-                            className="bg-transparent text-right text-[17px] tabular-nums text-ink [color-scheme:dark] focus:outline-none"
-                            aria-label="Time of day"
-                          />
-                        </label>
-                      )}
-
-                      <Button onClick={startTimer} disabled={busy || !timerValid} className="w-full py-3 text-[15px]">
-                        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Start Timer"}
-                      </Button>
+                      <button
+                        onClick={() => cancelTimer(t.id)}
+                        disabled={cancelling !== null}
+                        className="glass-btn flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-danger disabled:opacity-40"
+                        aria-label={`Cancel timer ${t.id}`}
+                      >
+                        {cancelling === t.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
+                      </button>
                     </motion.div>
-                  )}
+                  ))}
                 </AnimatePresence>
+
+                {/* Offline: what the app saved, clearly not "running" */}
+                {offline && savedTimers.length > 0 && (
+                  <div className="space-y-2 rounded-[20px] border border-dashed border-white/10 px-4 py-3">
+                    <p className="text-[12px] text-muted">Saved in the app · not confirmed on the device</p>
+                    {savedTimers.map((t, i) => (
+                      <p key={t.recordId ?? `${t.espId}-${i}`} className="text-[14px] text-dim">
+                        {t.espId !== undefined ? `#${t.espId} · ` : ""}Turn {t.action.toUpperCase()}{" "}
+                        {t.repeat ? `every ${formatDuration(t.seconds)}` : `after ${formatDuration(t.seconds)}`}
+                      </p>
+                    ))}
+                  </div>
+                )}
+
+                {running.length > 1 && onClearTimers && (
+                  <button
+                    onClick={clearTimers}
+                    disabled={cancelling !== null}
+                    className="text-[13px] text-danger disabled:opacity-40"
+                  >
+                    {cancelling === "all" ? "Cancelling…" : "Cancel All Timers"}
+                  </button>
+                )}
+
+                {running.length > 0 && <div className="h-px bg-line" />}
+
+                {/* New timer */}
+                    <p className="text-[13px] text-muted">
+                      {slotsFull
+                        ? "All timer slots are in use. Cancel one to add another."
+                        : !timerValid
+                          ? "Duration must be between 1 second and 24 hours."
+                          : timerMode === "at"
+                            ? `Turn ${timerAction.toUpperCase()} at ${atTime} · in ${formatDuration(Math.round(timerSeconds / 60) * 60)}`
+                            : `Turn ${timerAction.toUpperCase()} ${useRepeat ? "every" : "after"} ${formatDuration(timerSeconds)}`}
+                    </p>
+
+                  {/* Action */}
+                  <div className="grid grid-cols-2 gap-1 rounded-full bg-white/[0.05] p-1">
+                    {(["on", "off"] as const).map((a) => (
+                      <button
+                        key={a}
+                        onClick={() => setTimerAction(a)}
+                        className={`relative h-10 rounded-full text-[14px] ${timerAction === a ? "text-[#151515]" : "text-ink"}`}
+                      >
+                        {timerAction === a && (
+                          <motion.span layoutId={`timer-action-${device.id}`} transition={springs.snappy} className="absolute inset-0 rounded-full bg-white" />
+                        )}
+                        <span className="relative">Turn {a === "on" ? "On" : "Off"}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* When: after a duration, or at a clock time */}
+                  <div className="grid grid-cols-2 gap-1 rounded-full bg-white/[0.05] p-1">
+                    {(
+                      [
+                        { id: "after", label: "After" },
+                        { id: "at", label: "At time" },
+                      ] as const
+                    ).map((m) => (
+                      <button
+                        key={m.id}
+                        onClick={() => setTimerMode(m.id)}
+                        className={`relative h-9 rounded-full text-[13px] ${timerMode === m.id ? "text-ink" : "text-muted"}`}
+                      >
+                        {timerMode === m.id && (
+                          <motion.span layoutId={`timer-mode-${device.id}`} transition={springs.snappy} className="absolute inset-0 rounded-full bg-white/[0.14]" />
+                        )}
+                        <span className="relative">{m.label}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {timerMode === "after" ? (
+                    <>
+                      <div className="grid grid-cols-4 gap-2">
+                        {quickDurations.map((t) => {
+                          const active = durationSeconds === t.seconds;
+                          return (
+                            <button
+                              key={t.label}
+                              onClick={() => setDuration(t.seconds)}
+                              className={`relative h-10 rounded-full text-[14px] ${active ? "text-[#151515]" : "bg-white/[0.05] text-ink"}`}
+                            >
+                              {active && (
+                                <motion.span layoutId={`timer-${device.id}`} transition={springs.snappy} className="absolute inset-0 rounded-full bg-accent" />
+                              )}
+                              <span className="relative">{t.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Custom duration */}
+                      <div className="flex items-center gap-2">
+                        {[
+                          { label: "h", value: hours, set: setHours, max: 24 },
+                          { label: "min", value: minutes, set: setMinutes, max: 59 },
+                          { label: "s", value: secondsField, set: setSecondsField, max: 59 },
+                        ].map((f) => (
+                          <label key={f.label} className="flex min-w-0 flex-1 items-center gap-1.5 rounded-full bg-white/[0.05] px-3 py-2">
+                            <input
+                              type="number"
+                              inputMode="numeric"
+                              min={0}
+                              max={f.max}
+                              value={f.value}
+                              onChange={(e) => f.set(e.target.value.replace(/\D/g, "").slice(0, 2))}
+                              aria-label={f.label === "h" ? "Hours" : f.label === "min" ? "Minutes" : "Seconds"}
+                              className="w-full bg-transparent text-right text-[17px] tabular-nums text-ink focus:outline-none"
+                            />
+                            <span className="text-[14px] text-muted">{f.label}</span>
+                          </label>
+                        ))}
+                      </div>
+
+                      {/* Repeat */}
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-[15px]">Repeat</p>
+                          <p className="text-[12px] text-muted">
+                            Turn {timerAction.toUpperCase()} every {timerValid ? formatDuration(timerSeconds) : "…"}
+                          </p>
+                        </div>
+                        <Switch checked={repeat} onChange={() => setRepeat(!repeat)} label="Repeat timer" />
+                      </div>
+                    </>
+                  ) : (
+                    <label className="flex items-center justify-between rounded-full bg-white/[0.05] px-5 py-2">
+                      <span className="text-[15px]">Time</span>
+                      <input
+                        type="time"
+                        value={atTime}
+                        onChange={(e) => setAtTime(e.target.value)}
+                        className="bg-transparent text-right text-[17px] tabular-nums text-ink [color-scheme:dark] focus:outline-none"
+                        aria-label="Time of day"
+                      />
+                    </label>
+                  )}
+
+                  <Button onClick={startTimer} disabled={busy || !timerValid || slotsFull || offline} className="w-full py-3 text-[15px]">
+                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : running.length > 0 ? "Add Timer" : "Start Timer"}
+                  </Button>
               </motion.div>
             )}
           </div>

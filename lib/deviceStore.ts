@@ -11,6 +11,8 @@ const DATA_DIR = IS_VERCEL
 
 const DEVICES_FILE = path.join(DATA_DIR, "devices.json");
 const SUPABASE_DEVICE_TABLE = "device_PRB_home_assistant";
+// One row per timer (supabase/add_device_timer_records.sql).
+const SUPABASE_TIMER_TABLE = "device_timer_PRB_home_assistant";
 
 export const INITIAL_DEVICES: Device[] = [
   {
@@ -65,19 +67,6 @@ export const INITIAL_DEVICES: Device[] = [
 
 let inMemoryDevices: Device[] | null = null;
 
-// Timer config columns (added by supabase/add_device_timer.sql). If they are
-// missing, the timer config is kept in memory / the local JSON file only.
-function rowToTimer(d: Record<string, unknown>): DeviceTimerConfig | null {
-  if (d.timer_action !== "on" && d.timer_action !== "off") return null;
-  if (typeof d.timer_seconds !== "number") return null;
-  return {
-    action: d.timer_action,
-    seconds: d.timer_seconds,
-    repeat: d.timer_repeat === true,
-    startedAt: typeof d.timer_started_at === "string" ? d.timer_started_at : new Date().toISOString(),
-  };
-}
-
 export async function getDevices(username: string = "default_user"): Promise<Device[]> {
   try {
     // 1. Attempt Supabase query from device_PRB_home_assistant table
@@ -97,8 +86,9 @@ export async function getDevices(username: string = "default_user"): Promise<Dev
         powerState: d.power_state || "off",
         connectionState: d.connection_state || "connected",
         lastSeen: d.updated_at || new Date().toISOString(),
-        timer: rowToTimer(d) ?? inMemoryDevices?.find((m) => m.id === d.id)?.timer ?? null,
+        timers: inMemoryDevices?.find((m) => m.id === d.id)?.timers ?? [],
       }));
+      await attachScheduledTimers(formatted);
       inMemoryDevices = formatted;
       return formatted;
     }
@@ -240,37 +230,162 @@ export async function clearAllDevices(username: string = "default_user"): Promis
   return [];
 }
 
-/**
- * Saves (or clears, with null) the timer the user configured for a device.
- * The existing device upsert is left untouched; the timer columns are written
- * in a separate update so a missing column can never break device sync.
- */
-export async function saveDeviceTimer(id: string, timer: DeviceTimerConfig | null): Promise<void> {
-  const devices = await getDevices();
-  const index = devices.findIndex((d) => d.id === id);
-  if (index === -1) return;
-  devices[index] = { ...devices[index], timer };
-  inMemoryDevices = devices;
+/* ------------------------------------------------------------------ */
+/* Timer records                                                       */
+/* ------------------------------------------------------------------ */
+// The DB remembers what the user scheduled (and the ESP32's id for it).
+// It is never proof that a timer is running; ESP32 /status decides that.
+// If the timer table doesn't exist yet, records live in memory / the local file.
 
+let timerTableAvailable = true;
+
+function rowToTimerRecord(r: Record<string, unknown>): DeviceTimerConfig | null {
+  if (r.action !== "on" && r.action !== "off") return null;
+  if (typeof r.seconds !== "number") return null;
+  return {
+    recordId: typeof r.id === "string" ? r.id : undefined,
+    espId: typeof r.esp_timer_id === "number" ? r.esp_timer_id : undefined,
+    action: r.action,
+    seconds: r.seconds,
+    repeat: r.repeat === true,
+    startedAt: typeof r.created_at === "string" ? r.created_at : new Date().toISOString(),
+  };
+}
+
+/** Loads every device's still-scheduled timer records onto the device objects. */
+async function attachScheduledTimers(devices: Device[]): Promise<void> {
+  if (!timerTableAvailable) return;
   try {
-    const { error } = await supabase
-      .from(SUPABASE_DEVICE_TABLE)
-      .update({
-        timer_action: timer?.action ?? null,
-        timer_seconds: timer?.seconds ?? null,
-        timer_repeat: timer?.repeat ?? null,
-        timer_started_at: timer?.startedAt ?? null,
-      })
-      .eq("id", id);
-    if (error) console.warn("Supabase timer save notice:", error.message);
+    const { data, error } = await supabase
+      .from(SUPABASE_TIMER_TABLE)
+      .select("*")
+      .eq("status", "scheduled")
+      .order("created_at", { ascending: true });
+    if (error) {
+      timerTableAvailable = false;
+      console.warn("Timer table not available, using local timer records:", error.message);
+      return;
+    }
+    const byDevice = new Map<string, DeviceTimerConfig[]>();
+    for (const row of data ?? []) {
+      const rec = rowToTimerRecord(row);
+      if (!rec) continue;
+      const list = byDevice.get(row.device_id) ?? [];
+      list.push(rec);
+      byDevice.set(row.device_id, list);
+    }
+    for (const d of devices) d.timers = byDevice.get(d.id) ?? [];
   } catch (err) {
-    console.warn("Supabase timer save notice:", err);
+    console.warn("Timer records fetch notice:", err);
   }
+}
 
+async function persistLocal(devices: Device[]) {
   try {
     await fs.mkdir(DATA_DIR, { recursive: true });
     await fs.writeFile(DEVICES_FILE, JSON.stringify(devices, null, 2), "utf-8");
   } catch (err) {
     console.warn("Local file save notice:", err);
   }
+}
+
+/** Records a timer the ESP32 accepted (espId = the id the ESP32 returned). */
+export async function addTimerRecord(deviceId: string, timer: Omit<DeviceTimerConfig, "recordId">): Promise<void> {
+  const devices = await getDevices();
+  const device = devices.find((d) => d.id === deviceId);
+  if (!device) return;
+
+  let recordId: string | undefined;
+  if (timerTableAvailable) {
+    try {
+      const { data, error } = await supabase
+        .from(SUPABASE_TIMER_TABLE)
+        .insert({
+          device_id: deviceId,
+          esp_timer_id: timer.espId ?? null,
+          action: timer.action,
+          seconds: timer.seconds,
+          repeat: timer.repeat,
+          status: "scheduled",
+        })
+        .select("id")
+        .single();
+      if (error) console.warn("Timer record insert notice:", error.message);
+      recordId = data?.id;
+    } catch (err) {
+      console.warn("Timer record insert notice:", err);
+    }
+  }
+
+  device.timers = [...(device.timers ?? []), { ...timer, recordId }];
+  inMemoryDevices = devices;
+  await persistLocal(devices);
+}
+
+/**
+ * Marks timer records as finished. `espIds` = the ESP32 ids to close, or "all".
+ * status: "cancelled" (from the app) or "ended" (ESP32 no longer reports it).
+ */
+export async function closeTimerRecords(
+  deviceId: string,
+  espIds: number[] | "all",
+  status: "cancelled" | "ended"
+): Promise<void> {
+  const devices = await getDevices();
+  const device = devices.find((d) => d.id === deviceId);
+  if (!device) return;
+
+  const current = device.timers ?? [];
+  const closing = espIds === "all" ? current : current.filter((t) => t.espId !== undefined && espIds.includes(t.espId));
+  if (closing.length === 0) return;
+
+  if (timerTableAvailable) {
+    const recordIds = closing.map((t) => t.recordId).filter((id): id is string => !!id);
+    if (recordIds.length > 0) {
+      try {
+        const { error } = await supabase
+          .from(SUPABASE_TIMER_TABLE)
+          .update({ status, updated_at: new Date().toISOString() })
+          .in("id", recordIds);
+        if (error) console.warn("Timer record update notice:", error.message);
+      } catch (err) {
+        console.warn("Timer record update notice:", err);
+      }
+    }
+  }
+
+  device.timers = current.filter((t) => !closing.includes(t));
+  inMemoryDevices = devices;
+  await persistLocal(devices);
+}
+
+/**
+ * Brings the DB in line with what the ESP32 reports: any scheduled record
+ * whose timer is no longer running on the device is marked "ended".
+ * Timers are never re-created on the ESP32 from the DB.
+ */
+export async function reconcileTimerRecords(deviceId: string, runningEspIds: number[]): Promise<void> {
+  const devices = await getDevices();
+  const target = devices.find((d) => d.id === deviceId);
+  if (!target) return;
+  const closing = (target.timers ?? []).filter((t) => t.espId === undefined || !runningEspIds.includes(t.espId));
+  if (closing.length === 0) return;
+
+  if (timerTableAvailable) {
+    const recordIds = closing.map((t) => t.recordId).filter((id): id is string => !!id);
+    if (recordIds.length > 0) {
+      try {
+        await supabase
+          .from(SUPABASE_TIMER_TABLE)
+          .update({ status: "ended", updated_at: new Date().toISOString() })
+          .in("id", recordIds);
+      } catch (err) {
+        console.warn("Timer record update notice:", err);
+      }
+    }
+  }
+
+  target.timers = (target.timers ?? []).filter((t) => !closing.includes(t));
+  inMemoryDevices = devices;
+  await persistLocal(devices);
 }

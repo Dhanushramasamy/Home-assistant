@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Device, NetworkConfig, PowerState, ToastMessage, TestConnectionResponse, TimerAction } from "@/types";
-import { fetchDeviceStatus, requestCancelTimer, requestStartTimer } from "@/lib/timerClient";
+import { fetchDeviceStatus, requestCancelTimer, requestClearTimers, requestStartTimer } from "@/lib/timerClient";
 import { useBackClose } from "@/lib/useBackClose";
 import type { EspStatusEntry } from "@/components/DeviceCard";
 import { DeviceCard } from "@/components/DeviceCard";
@@ -197,83 +197,111 @@ export default function HomeControlPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ deviceId, action: nextState }),
-    }).catch(() => {});
+    })
+      .catch(() => {})
+      // Re-read the ESP32 so power + timers reflect what it actually did.
+      // Manual ON/OFF never cancels timers.
+      .finally(() => setTimeout(() => void refreshStatus(deviceId), 800));
   };
 
-  // ESP32 status + timer. The ESP32's /status is the source of truth; the DB only
-  // remembers what the user asked for. Countdowns tick locally from `syncedAt`.
+  // ESP32 status + timers. Each ESP32's /status is the source of truth for its
+  // own power and timers; the DB only remembers what was scheduled.
+  // Countdowns tick locally from `syncedAt` between syncs.
   const [espStatus, setEspStatus] = useState<Record<string, EspStatusEntry>>({});
+  const devicesRef = useRef(devices);
+  useEffect(() => {
+    devicesRef.current = devices;
+  }, [devices]);
+
+  // Per-device sync schedule: online every 30 s, offline backs off 60 s -> 5 min.
+  const syncPlan = useRef<Record<string, { nextAt: number; failures: number }>>({});
+  const ONLINE_SYNC_MS = 30_000;
 
   const refreshStatus = useCallback(
     async (deviceId: string) => {
-      const device = devices.find((d) => d.id === deviceId);
+      const device = devicesRef.current.find((d) => d.id === deviceId);
       if (!device) return;
       const status = await fetchDeviceStatus(device, networkConfig?.mode);
+
+      const plan = syncPlan.current[deviceId] ?? { nextAt: 0, failures: 0 };
+      plan.failures = status.reachable ? 0 : plan.failures + 1;
+      plan.nextAt = Date.now() + (status.reachable ? ONLINE_SYNC_MS : Math.min(300_000, 60_000 * 2 ** (plan.failures - 1)));
+      syncPlan.current[deviceId] = plan;
+
       setEspStatus((prev) => ({
         ...prev,
-        [deviceId]: { reachable: status.reachable, timer: status.timer, syncedAt: Date.now() },
+        [deviceId]: {
+          reachable: status.reachable,
+          // When offline, keep nothing as "running": we can't confirm it.
+          timers: status.reachable ? status.timers ?? [] : [],
+          timerCount: status.reachable ? status.timerCount : undefined,
+          espDevice: status.espDevice ?? prev[deviceId]?.espDevice,
+          syncedAt: Date.now(),
+        },
       }));
-      if (status.reachable) {
-        setDevices((prev) =>
-          prev.map((d) =>
-            d.id === deviceId
-              ? { ...d, powerState: status.power ?? d.powerState, connectionState: "connected" }
-              : d
-          )
-        );
-      }
+      setDevices((prev) =>
+        prev.map((d) =>
+          d.id === deviceId
+            ? {
+                ...d,
+                ...(status.reachable
+                  ? { powerState: status.power ?? d.powerState, connectionState: "connected" as const }
+                  : { connectionState: "offline" as const }),
+                ...(status.savedTimers ? { timers: status.savedTimers } : {}),
+              }
+            : d
+        )
+      );
     },
-    [devices, networkConfig?.mode]
+    [networkConfig?.mode]
   );
+
+  // On load: contact every ESP32 independently, then follow each one's schedule.
+  const deviceIdList = devices.map((d) => d.id).join(",");
+  useEffect(() => {
+    if (!deviceIdList) return;
+    const tick = () => {
+      const now = Date.now();
+      for (const id of deviceIdList.split(",")) {
+        const plan = syncPlan.current[id];
+        if (!plan || now >= plan.nextAt) {
+          syncPlan.current[id] = { nextAt: now + ONLINE_SYNC_MS, failures: plan?.failures ?? 0 };
+          void refreshStatus(id);
+        }
+      }
+    };
+    const first = setTimeout(tick, 300);
+    const interval = setInterval(tick, 10_000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(interval);
+    };
+  }, [deviceIdList, refreshStatus]);
 
   const handleStartTimer = async (deviceId: string, action: TimerAction, seconds: number, repeat: boolean) => {
     const device = devices.find((d) => d.id === deviceId);
     if (!device) return;
     const result = await requestStartTimer(device, networkConfig?.mode, { action, seconds, repeat });
-    updateDevicesState((prev) =>
-      prev.map((d) => (d.id === deviceId ? { ...d, timer: { action, seconds, repeat, startedAt: new Date().toISOString() } } : d))
-    );
-    setEspStatus((prev) => ({
-      ...prev,
-      [deviceId]: {
-        reachable: result.reachable,
-        timer: result.reachable ? result.timer ?? { active: true, action, repeat, seconds, remaining: seconds } : prev[deviceId]?.timer,
-        syncedAt: Date.now(),
-      },
-    }));
-    if (!result.reachable) showToast("error", "Device not reachable", "Timer saved, but the ESP32 didn't respond.");
+    if (!result.success) showToast("error", result.message);
+    await refreshStatus(deviceId);
   };
 
-  const handleCancelTimer = async (deviceId: string) => {
+  const handleCancelTimer = async (deviceId: string, timerId: number) => {
     const device = devices.find((d) => d.id === deviceId);
     if (!device) return;
-    const result = await requestCancelTimer(device, networkConfig?.mode);
-    updateDevicesState((prev) => prev.map((d) => (d.id === deviceId ? { ...d, timer: null } : d)));
-    setEspStatus((prev) => ({
-      ...prev,
-      [deviceId]: { reachable: result.reachable, timer: result.reachable ? { active: false } : prev[deviceId]?.timer, syncedAt: Date.now() },
-    }));
-    if (!result.reachable) showToast("error", "Device not reachable", "The ESP32 didn't confirm the cancel.");
+    const result = await requestCancelTimer(device, networkConfig?.mode, timerId);
+    if (!result.success && result.reason !== "not_found") showToast("error", result.message);
+    await refreshStatus(deviceId);
   };
 
-  // Re-sync devices that have a saved timer: once after load, then every 60 s.
-  const timerDeviceIds = devices
-    .filter((d) => d.timer || espStatus[d.id]?.timer?.active)
-    .map((d) => d.id)
-    .join(",");
-  useEffect(() => {
-    if (!timerDeviceIds) return;
-    const ids = timerDeviceIds.split(",");
-    const sync = () => ids.forEach((id) => void refreshStatus(id));
-    const first = setTimeout(sync, 500);
-    const interval = setInterval(sync, 60_000);
-    return () => {
-      clearTimeout(first);
-      clearInterval(interval);
-    };
-    // refreshStatus changes with `devices`; the id list is the real dependency.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timerDeviceIds]);
+  const handleClearTimers = async (deviceId: string) => {
+    const device = devices.find((d) => d.id === deviceId);
+    if (!device) return;
+    if (!window.confirm(`Cancel all timers on '${device.name}'?`)) return;
+    const result = await requestClearTimers(device, networkConfig?.mode);
+    if (!result.success) showToast("error", result.message);
+    await refreshStatus(deviceId);
+  };
 
   // Connection Test
   const handleTestConnection = async (deviceId: string) => {
@@ -681,6 +709,7 @@ export default function HomeControlPage() {
                       onRefreshStatus={refreshStatus}
                       onStartTimer={handleStartTimer}
                       onCancelTimer={handleCancelTimer}
+                      onClearTimers={handleClearTimers}
                     />
                   ))}
                 </AnimatePresence>
