@@ -1,68 +1,48 @@
 "use client";
 
 import React from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { ToastMessage } from "@/types";
-import { CheckCircle2, AlertCircle, Info, XCircle, X } from "lucide-react";
+import { CheckCircle2, AlertCircle, Info, XCircle, type LucideIcon } from "lucide-react";
+import { easeApple } from "@/lib/deviceTheme";
 
 interface ToastContainerProps {
   toasts: ToastMessage[];
   onDismiss: (id: string) => void;
 }
 
-export const ToastContainer: React.FC<ToastContainerProps> = ({
-  toasts,
-  onDismiss,
-}) => {
-  if (!toasts.length) return null;
+const toastIcons: Record<ToastMessage["type"], { icon: LucideIcon; color: string }> = {
+  success: { icon: CheckCircle2, color: "#e8f047" },
+  error: { icon: XCircle, color: "#ff453a" },
+  warning: { icon: AlertCircle, color: "#ff9f0a" },
+  info: { icon: Info, color: "#0a84ff" },
+};
+
+/** iOS-style HUD pill, top centre. Shows only the latest message. */
+export const ToastContainer: React.FC<ToastContainerProps> = ({ toasts, onDismiss }) => {
+  const toast = toasts[toasts.length - 1];
 
   return (
-    <div className="fixed bottom-5 right-5 z-50 flex flex-col space-y-3 max-w-sm w-full px-4 sm:px-0 pointer-events-none">
-      {toasts.map((toast) => {
-        const isSuccess = toast.type === "success";
-        const isError = toast.type === "error";
-        const isWarning = toast.type === "warning";
-
-        return (
-          <div
+    <div className="pointer-events-none fixed inset-x-0 top-4 z-[60] flex justify-center px-4">
+      <AnimatePresence mode="wait">
+        {toast && (
+          <motion.button
             key={toast.id}
-            className={`pointer-events-auto flex items-start p-4 rounded-xl shadow-xl backdrop-blur-md border transition-all transform duration-300 animate-in slide-in-from-bottom-3 ${
-              isSuccess
-                ? "bg-slate-900/90 border-emerald-500/40 text-slate-100 shadow-emerald-500/10"
-                : isError
-                ? "bg-slate-900/90 border-rose-500/40 text-slate-100 shadow-rose-500/10"
-                : isWarning
-                ? "bg-slate-900/90 border-amber-500/40 text-slate-100 shadow-amber-500/10"
-                : "bg-slate-900/90 border-cyan-500/40 text-slate-100 shadow-cyan-500/10"
-            }`}
+            onClick={() => onDismiss(toast.id)}
+            initial={{ opacity: 0, y: -20, scaleX: 0.6, scaleY: 0.8 }}
+            animate={{ opacity: 1, y: 0, scaleX: 1, scaleY: 1 }}
+            exit={{ opacity: 0, y: -14, scaleX: 0.7, scaleY: 0.85, transition: { duration: 0.25, ease: easeApple } }}
+            transition={{ type: "spring", stiffness: 420, damping: 30 }}
+            className="pointer-events-auto flex max-w-sm items-center gap-2 rounded-full border border-white/10 bg-[#26272c]/90 py-2.5 pl-3 pr-4 text-left text-[13px] font-medium text-white shadow-[0_8px_30px_rgba(0,0,0,0.2)] backdrop-blur-xl"
           >
-            <div className="mr-3 mt-0.5 shrink-0">
-              {isSuccess && <CheckCircle2 className="w-5 h-5 text-emerald-400" />}
-              {isError && <XCircle className="w-5 h-5 text-rose-400" />}
-              {isWarning && <AlertCircle className="w-5 h-5 text-amber-400" />}
-              {!isSuccess && !isError && !isWarning && (
-                <Info className="w-5 h-5 text-cyan-400" />
-              )}
-            </div>
-
-            <div className="flex-1 pr-2">
-              <h4 className="text-sm font-semibold tracking-wide">{toast.title}</h4>
-              {toast.description && (
-                <p className="text-xs text-slate-300 mt-0.5 leading-relaxed">
-                  {toast.description}
-                </p>
-              )}
-            </div>
-
-            <button
-              onClick={() => onDismiss(toast.id)}
-              className="text-slate-400 hover:text-slate-200 p-1 rounded-lg transition-colors shrink-0"
-              aria-label="Dismiss toast"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        );
-      })}
+            {React.createElement(toastIcons[toast.type]?.icon ?? Info, {
+              className: "h-4 w-4 shrink-0",
+              style: { color: toastIcons[toast.type]?.color },
+            })}
+            <span className="truncate">{toast.title.replace(/^[✓✕]\s*/, "")}</span>
+          </motion.button>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

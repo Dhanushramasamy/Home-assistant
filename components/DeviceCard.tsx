@@ -1,20 +1,12 @@
 "use client";
 
 import React, { useState } from "react";
+import { motion } from "motion/react";
 import { Device, PowerState } from "@/types";
-import { PowerButton } from "./PowerButton";
-import {
-  Lightbulb,
-  Fan,
-  Plug,
-  Cpu,
-  MoreVertical,
-  Activity,
-  Trash2,
-  Edit3,
-  Sparkles,
-} from "lucide-react";
+import { Lightbulb, Fan, Plug, Cpu, ArrowUpRight } from "lucide-react";
 import { Device3DModal } from "./Device3DModal";
+import { PowerPill } from "./ui/PowerPill";
+import { easeApple, springs } from "@/lib/deviceTheme";
 
 interface DeviceCardProps {
   device: Device;
@@ -23,7 +15,11 @@ interface DeviceCardProps {
   onEditDevice: (device: Device) => void;
   onDeleteDevice: (device: Device) => void;
   isActionLoading?: boolean;
+  /** Position in the grid, used to stagger the entrance. */
+  index?: number;
 }
+
+export const deviceIcons = { light: Lightbulb, fan: Fan, plug: Plug, other: Cpu };
 
 export const DeviceCard: React.FC<DeviceCardProps> = ({
   device,
@@ -32,203 +28,92 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
   onEditDevice,
   onDeleteDevice,
   isActionLoading = false,
+  index = 0,
 }) => {
-  const [showMenu, setShowMenu] = useState(false);
-  const [is3DModalOpen, setIs3DModalOpen] = useState(false);
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
 
   const isOn = device.powerState === "on";
   const isConnected = device.connectionState === "connected";
-
-  const renderIcon = () => {
-    switch (device.type) {
-      case "light":
-        return (
-          <Lightbulb
-            className={`w-6 h-6 transition-colors ${
-              isOn ? "text-amber-500" : "text-slate-400"
-            }`}
-          />
-        );
-      case "fan":
-        return (
-          <Fan
-            className={`w-6 h-6 transition-colors ${
-              isOn ? "text-sky-500 animate-spin" : "text-slate-400"
-            }`}
-          />
-        );
-      case "plug":
-        return (
-          <Plug
-            className={`w-6 h-6 transition-colors ${
-              isOn ? "text-emerald-500" : "text-slate-400"
-            }`}
-          />
-        );
-      default:
-        return (
-          <Cpu
-            className={`w-6 h-6 transition-colors ${
-              isOn ? "text-purple-500" : "text-slate-400"
-            }`}
-          />
-        );
-    }
-  };
-
-  const getPastelBg = () => {
-    if (!isOn) return "bg-white border-slate-200/90";
-    switch (device.type) {
-      case "light":
-        return "bg-amber-50/70 border-amber-200/80";
-      case "fan":
-        return "bg-sky-50/70 border-sky-200/80";
-      case "plug":
-        return "bg-emerald-50/70 border-emerald-200/80";
-      default:
-        return "bg-purple-50/70 border-purple-200/80";
-    }
-  };
+  const Icon = deviceIcons[device.type] ?? Cpu;
+  const toggle = () => !isActionLoading && onTogglePower(device.id, device.powerState);
 
   return (
     <>
-      <div
-        className={`relative flex flex-col justify-between h-full p-4 sm:p-5 rounded-3xl border transition-all duration-200 shadow-2xs hover:shadow-md ${getPastelBg()}`}
+      <motion.div
+        layout
+        initial={{ opacity: 0, y: 18, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
+        transition={{ duration: 0.55, ease: easeApple, delay: Math.min(index * 0.05, 0.35) }}
       >
-        {/* Top Header Bar: Device Icon + Compact Name Label + Status Pill + Menu */}
-        <div className="flex items-start justify-between gap-2 mb-3">
-          {/* Icon & Compact Name Label */}
-          <div className="flex items-center space-x-2.5 min-w-0 flex-1">
-            <button
-              onClick={() => setIs3DModalOpen(true)}
-              className={`w-10 h-10 rounded-2xl flex items-center justify-center border shrink-0 transition-all hover:scale-105 active:scale-95 ${
-                isOn
-                  ? device.type === "light"
-                    ? "bg-amber-100 border-amber-300 shadow-xs"
-                    : device.type === "fan"
-                    ? "bg-sky-100 border-sky-300 shadow-xs"
-                    : "bg-emerald-100 border-emerald-300 shadow-xs"
-                  : "bg-slate-100 border-slate-200"
-              }`}
-              title="Click to open 3D Interactive Controls"
-            >
-              {renderIcon()}
-            </button>
-
-            <div className="min-w-0 flex-1">
-              {/* Small Compact Device Name Label */}
-              <h3 className="text-xs sm:text-sm font-bold text-slate-800 tracking-tight truncate leading-tight">
-                {device.name}
-              </h3>
-              <p className="text-[11px] text-slate-500 mt-0.5 truncate font-medium">
-                {device.room}
-              </p>
-            </div>
-          </div>
-
-          {/* Right side: Status Pill & Context Menu */}
-          <div className="flex items-center space-x-1 shrink-0 pt-0.5">
-
-            <span
-              className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${
-                isConnected
-                  ? "bg-emerald-100/90 text-emerald-800 border-emerald-200"
-                  : "bg-rose-100/90 text-rose-800 border-rose-200"
-              }`}
-            >
-              <span
-                className={`w-1.5 h-1.5 rounded-full mr-1 ${
-                  isConnected ? "bg-emerald-500" : "bg-rose-500"
-                }`}
-              />
-              {isConnected ? "Online" : "Offline"}
-            </span>
-
-            <div className="relative">
-              <button
-                onClick={() => setShowMenu(!showMenu)}
-                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-              >
-                <MoreVertical className="w-4 h-4" />
-              </button>
-
-              {showMenu && (
-                <>
-                  <div
-                    className="fixed inset-0 z-10"
-                    onClick={() => setShowMenu(false)}
-                  />
-                  <div className="absolute right-0 mt-1 w-48 bg-white border border-slate-200 rounded-2xl shadow-xl z-20 py-1 text-xs">
-                    <button
-                      onClick={() => {
-                        setShowMenu(false);
-                        setIs3DModalOpen(true);
-                      }}
-                      className="flex items-center w-full px-3 py-2 text-slate-800 font-semibold hover:bg-slate-50 transition-colors"
-                    >
-                      <Sparkles className="w-3.5 h-3.5 mr-2 text-amber-500" />
-                      <span>Open 3D Controls</span>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        setShowMenu(false);
-                        onTestConnection(device.id);
-                      }}
-                      className="flex items-center w-full px-3 py-2 text-slate-700 hover:bg-slate-50 transition-colors"
-                    >
-                      <Activity className="w-3.5 h-3.5 mr-2 text-sky-600" />
-                      <span>Test Connection</span>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        setShowMenu(false);
-                        onEditDevice(device);
-                      }}
-                      className="flex items-center w-full px-3 py-2 text-slate-700 hover:bg-slate-50 transition-colors"
-                    >
-                      <Edit3 className="w-3.5 h-3.5 mr-2 text-indigo-600" />
-                      <span>Edit Device</span>
-                    </button>
-
-                    <div className="my-1 border-t border-slate-100" />
-
-                    <button
-                      onClick={() => {
-                        setShowMenu(false);
-                        onDeleteDevice(device);
-                      }}
-                      className="flex items-center w-full px-3 py-2 text-rose-600 hover:bg-rose-50 transition-colors"
-                    >
-                      <Trash2 className="w-3.5 h-3.5 mr-2" />
-                      <span>Delete Device</span>
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Main Bottom Section: BIG Prominent Power Toggle Button */}
-        <div className="mt-3 pt-2 border-t border-slate-200/60">
-          <PowerButton
-            powerState={device.powerState}
-            isLoading={isActionLoading}
-            onToggle={() => onTogglePower(device.id, device.powerState)}
-            size="lg"
-            fullWidth
+        <motion.div
+          whileHover={{ y: -3 }}
+          transition={springs.soft}
+          className="glass relative flex h-full flex-col gap-5 overflow-hidden rounded-[28px] p-3"
+        >
+          {/* Soft lime glow when the device is on */}
+          <motion.div
+            aria-hidden
+            className="pointer-events-none absolute -left-12 -top-12 h-40 w-40 rounded-full bg-accent blur-3xl"
+            initial={false}
+            animate={{ opacity: isOn ? 0.14 : 0, scale: isOn ? 1 : 0.5 }}
+            transition={{ duration: 0.7, ease: easeApple }}
           />
-        </div>
-      </div>
 
-      {/* Interactive 3D Modal */}
+          <div className="relative flex items-start justify-between">
+            <motion.div
+              initial={false}
+              animate={{ scale: isOn ? [1, 1.12, 1] : 1 }}
+              transition={{ duration: 0.45, ease: easeApple }}
+              className="glass-btn relative flex h-12 w-12 items-center justify-center rounded-full"
+            >
+              <motion.span
+                className="flex"
+                animate={device.type === "fan" && isOn ? { rotate: 360 } : { rotate: 0 }}
+                transition={device.type === "fan" && isOn ? { duration: 1.6, repeat: Infinity, ease: "linear" } : { duration: 0.8 }}
+              >
+                <Icon
+                  className="h-5 w-5 transition-colors duration-300"
+                  style={{ color: isOn ? "#e8f047" : "#d4d4d8", filter: isOn ? "drop-shadow(0 0 6px rgb(232 240 71 / 0.6))" : "none" }}
+                  strokeWidth={1.8}
+                />
+              </motion.span>
+            </motion.div>
+
+            <motion.button
+              onClick={() => setIsDetailOpen(true)}
+              whileHover={{ rotate: 45 }}
+              whileTap={{ scale: 0.9 }}
+              transition={springs.snappy}
+              className="glass-btn flex h-12 w-12 items-center justify-center rounded-full text-ink"
+              aria-label={`Open ${device.name}`}
+            >
+              <ArrowUpRight className="h-5 w-5" strokeWidth={1.8} />
+            </motion.button>
+          </div>
+
+          <div className="relative min-w-0 px-1">
+            <p className="flex items-center gap-1.5 truncate text-[13px] text-muted">
+              {!isConnected && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-danger" title="No response" />}
+              {device.room}
+            </p>
+            <h3 className="mt-0.5 line-clamp-2 text-[18px] font-medium leading-snug text-ink">{device.name}</h3>
+          </div>
+
+          <div className="relative mt-auto flex justify-end">
+            <PowerPill on={isOn} onToggle={toggle} disabled={isActionLoading} label={`${device.name} power`} />
+          </div>
+        </motion.div>
+      </motion.div>
+
       <Device3DModal
         device={device}
-        isOpen={is3DModalOpen}
-        onClose={() => setIs3DModalOpen(false)}
+        isOpen={isDetailOpen}
+        onClose={() => setIsDetailOpen(false)}
         onTogglePower={onTogglePower}
+        onTestConnection={onTestConnection}
+        onEditDevice={onEditDevice}
+        onDeleteDevice={onDeleteDevice}
       />
     </>
   );

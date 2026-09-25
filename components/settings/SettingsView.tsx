@@ -7,7 +7,9 @@ import { NetworkSettings } from "./NetworkSettings";
 import { DevicesSettings } from "./DevicesSettings";
 import { ControllerSettings } from "./ControllerSettings";
 import { AdvancedSettings } from "./AdvancedSettings";
-import { Sliders, Wifi, Cpu, Server, Wrench } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { AccountSettings } from "./AccountSettings";
+import { easeApple, springs } from "@/lib/deviceTheme";
 
 interface SettingsViewProps {
   devices: Device[];
@@ -21,7 +23,19 @@ interface SettingsViewProps {
   onResetDefaults: () => Promise<void>;
   onClearMockData: () => Promise<void>;
   showToast: (type: "success" | "error" | "info" | "warning", title: string, desc?: string) => void;
+  username: string;
+  onSwitchAccount: () => void;
+  onSignOut: () => void;
 }
+
+const sections = [
+  { id: "account", label: "Account" },
+  { id: "general", label: "General" },
+  { id: "network", label: "Network" },
+  { id: "devices", label: "Devices" },
+  { id: "controller", label: "Controller" },
+  { id: "advanced", label: "Advanced" },
+] as const;
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
   devices,
@@ -35,93 +49,84 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onResetDefaults,
   onClearMockData,
   showToast,
+  username,
+  onSwitchAccount,
+  onSignOut,
 }) => {
-  const [activeSection, setActiveSection] = useState<
-    "general" | "network" | "devices" | "controller" | "advanced"
-  >("network");
-
-  const sections = [
-    { id: "general", label: "General", icon: Sliders },
-    { id: "network", label: "Network", icon: Wifi },
-    { id: "devices", label: "Devices", icon: Cpu, badge: devices.length },
-    { id: "controller", label: "Controller", icon: Server },
-    { id: "advanced", label: "Advanced", icon: Wrench },
-  ];
+  const [activeSection, setActiveSection] = useState<(typeof sections)[number]["id"]>("account");
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      
-      <div>
-        <h2 className="text-xl font-bold text-slate-900">Settings</h2>
-        <p className="text-xs text-slate-500">
-          Network options, ESP32 addresses, and gateway configuration
-        </p>
+    <div className="max-w-2xl space-y-6">
+      <div className="no-scrollbar -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+        <div className="flex min-w-max select-none rounded-[10px] bg-white/[0.06] p-0.5 text-[13px] font-medium sm:min-w-0">
+          {sections.map((sec) => {
+            const isActive = activeSection === sec.id;
+            return (
+              <button
+                key={sec.id}
+                onClick={() => setActiveSection(sec.id)}
+                className="relative flex-1 whitespace-nowrap rounded-[8px] px-3 py-1.5 text-ink"
+              >
+                {isActive && (
+                  <motion.span
+                    layoutId="settings-tab"
+                    transition={springs.snappy}
+                    className="absolute inset-0 rounded-[8px] bg-white/[0.16] shadow-[0_1px_3px_rgba(0,0,0,0.3)]"
+                  />
+                )}
+                <span className="relative">{sec.label}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      <div className="flex items-center space-x-2 overflow-x-auto no-scrollbar pb-2 select-none">
-        {sections.map((sec) => {
-          const Icon = sec.icon;
-          const isActive = activeSection === sec.id;
-          return (
-            <button
-              key={sec.id}
-              onClick={() => setActiveSection(sec.id as any)}
-              className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap border ${
-                isActive
-                  ? "bg-teal-600 text-white border-teal-600 shadow-xs"
-                  : "bg-white hover:bg-slate-100 text-slate-600 border-slate-200"
-              }`}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              <span>{sec.label}</span>
-              {sec.badge !== undefined && (
-                <span className={`px-1.5 py-0.2 rounded-md text-[10px] font-bold ${
-                  isActive ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"
-                }`}>
-                  {sec.badge}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={activeSection}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.25, ease: easeApple }}
+        >
+          {activeSection === "account" && (
+            <AccountSettings
+              username={username}
+              role={currentUserRole}
+              onSwitchAccount={onSwitchAccount}
+              onSignOut={onSignOut}
+            />
+          )}
 
-      <div className="mt-4">
-        {activeSection === "general" && <GeneralSettings currentUserRole={currentUserRole} />}
+          {activeSection === "general" && <GeneralSettings currentUserRole={currentUserRole} />}
 
-        {activeSection === "network" && (
-          <NetworkSettings
-            networkConfig={networkConfig}
-            onSaveNetworkConfig={onSaveNetworkConfig}
-            showToast={showToast}
-          />
-        )}
+          {activeSection === "network" && (
+            <NetworkSettings networkConfig={networkConfig} onSaveNetworkConfig={onSaveNetworkConfig} showToast={showToast} />
+          )}
 
-        {activeSection === "devices" && (
-          <DevicesSettings
-            devices={devices}
-            onOpenAddModal={onOpenAddModal}
-            onEditDevice={onEditDevice}
-            onDeleteDevice={onDeleteDevice}
-            onTestConnection={onTestConnection}
-          />
-        )}
+          {activeSection === "devices" && (
+            <DevicesSettings
+              devices={devices}
+              onOpenAddModal={onOpenAddModal}
+              onEditDevice={onEditDevice}
+              onDeleteDevice={onDeleteDevice}
+              onTestConnection={onTestConnection}
+            />
+          )}
 
-        {activeSection === "controller" && (
-          <ControllerSettings networkConfig={networkConfig} />
-        )}
+          {activeSection === "controller" && <ControllerSettings networkConfig={networkConfig} />}
 
-        {activeSection === "advanced" && (
-          <AdvancedSettings
-            networkConfig={networkConfig}
-            devices={devices}
-            onResetDefaults={onResetDefaults}
-            onClearMockData={onClearMockData}
-            showToast={showToast}
-          />
-        )}
-      </div>
-
+          {activeSection === "advanced" && (
+            <AdvancedSettings
+              networkConfig={networkConfig}
+              devices={devices}
+              onResetDefaults={onResetDefaults}
+              onClearMockData={onClearMockData}
+              showToast={showToast}
+            />
+          )}
+        </motion.div>
+      </AnimatePresence>
     </div>
   );
 };

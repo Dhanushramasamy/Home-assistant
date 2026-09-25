@@ -16,13 +16,13 @@ const FanCanvas = dynamic(
 
 function Loading3DFallback({ type }: { type: string }) {
   return (
-    <div className="w-full h-48 sm:h-56 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col items-center justify-center space-y-2 animate-pulse">
+    <div className="w-full h-64 sm:h-72 rounded-2xl flex flex-col items-center justify-center space-y-2 animate-pulse">
       {type === "light" ? (
         <Lightbulb className="w-8 h-8 text-amber-500/40 animate-pulse" />
       ) : (
         <Fan className="w-8 h-8 text-sky-500/40 animate-spin" />
       )}
-      <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">Rendering 3D Model...</span>
+      <span className="text-[10px] text-dim font-semibold uppercase tracking-wider">Rendering 3D Model...</span>
     </div>
   );
 }
@@ -48,11 +48,11 @@ export const Dynamic3DCanvas: React.FC<Dynamic3DCanvasProps> = ({
 
   // Fallback for Plug / Other
   return (
-    <div className="w-full h-48 sm:h-56 rounded-2xl bg-gradient-to-b from-slate-900/80 to-slate-900/90 border border-emerald-500/20 flex flex-col items-center justify-center space-y-2">
-      <div className={`p-4 rounded-2xl border transition-all ${isOn ? "bg-emerald-500/20 border-emerald-500 text-emerald-400 shadow-lg shadow-emerald-500/20" : "bg-slate-800 border-slate-700 text-slate-500"}`}>
+    <div className="w-full h-56 sm:h-64 rounded-2xl bg-gradient-to-b from-white/[0.03] to-black/40 border border-line flex flex-col items-center justify-center space-y-2">
+      <div className={`p-4 rounded-2xl border transition-all ${isOn ? "bg-tint-plug/15 border-tint-plug/60 text-tint-plug shadow-[0_0_40px_-6px_rgba(94,234,212,0.6)]" : "bg-white/[0.06] border-line text-dim"}`}>
         <Plug className="w-10 h-10" />
       </div>
-      <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+      <span className="text-xs font-bold text-muted uppercase tracking-wider">
         {isOn ? "Active Relay ON" : "Relay OFF"}
       </span>
     </div>

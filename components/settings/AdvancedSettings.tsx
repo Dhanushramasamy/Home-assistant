@@ -3,16 +3,7 @@
 import React, { useState } from "react";
 import { NetworkConfig, Device } from "@/types";
 import { validateIpAgainstSubnet } from "@/lib/networkUtils";
-import {
-  Wrench,
-  RotateCcw,
-  Download,
-  CheckCircle2,
-  AlertTriangle,
-  FileJson,
-  Trash2,
-  Sparkles,
-} from "lucide-react";
+import { Group, Row, rowInput } from "./Group";
 
 interface AdvancedSettingsProps {
   networkConfig: NetworkConfig | null;
@@ -83,90 +74,37 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
   };
 
   return (
-    <div className="space-y-6">
-      
-      {/* Subnet Calculator Tool Card */}
-      <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-3">
-        <div className="flex items-center space-x-3 border-b border-slate-100 pb-3">
-          <div className="p-2.5 rounded-xl bg-amber-50 text-amber-600 border border-amber-200">
-            <Wrench className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="text-base font-bold text-slate-900">Subnet CIDR Verifier</h3>
-            <p className="text-xs text-slate-500">Test IP address against active subnet ({subnet})</p>
-          </div>
-        </div>
-
-        <div className="space-y-2 pt-1">
-          <label className="block text-xs font-semibold text-slate-700">
-            Test IP Address
-          </label>
+    <div className="space-y-8">
+      <Group
+        title={`Check IP against ${subnet}`}
+        footer={
+          <span className={testValidation.status === "success" ? "text-success" : "text-amber-300"}>
+            {testValidation.message}
+          </span>
+        }
+      >
+        <Row label="IP Address">
           <input
             type="text"
             value={testIp}
             onChange={(e) => setTestIp(e.target.value)}
-            placeholder="e.g. 192.168.1.200"
-            className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-900 focus:outline-none focus:border-teal-500"
+            placeholder="192.168.1.200"
+            className={`${rowInput} font-mono`}
           />
+        </Row>
+      </Group>
 
-          <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 text-xs">
-            {testValidation.status === "success" && (
-              <div className="text-emerald-700 font-bold flex items-center">
-                <CheckCircle2 className="w-4 h-4 mr-1.5" />
-                <span>{testValidation.message}</span>
-              </div>
-            )}
-            {testValidation.status === "warning" && (
-              <div className="text-amber-700 font-bold flex items-center">
-                <AlertTriangle className="w-4 h-4 mr-1.5" />
-                <span>{testValidation.message}</span>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Mock Data Management & Backup */}
-      <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-4">
-        <div className="flex items-center space-x-3 border-b border-slate-100 pb-3">
-          <div className="p-2.5 rounded-xl bg-teal-50 text-teal-600 border border-teal-200">
-            <FileJson className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="text-base font-bold text-slate-900">Data Management & Real Device Setup</h3>
-            <p className="text-xs text-slate-500">Clear mock data or export backup files</p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <button
-            onClick={handleClearAll}
-            disabled={isProcessing || devices.length === 0}
-            className="flex items-center justify-center space-x-1.5 p-3 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 font-bold text-xs transition-colors disabled:opacity-50"
-          >
-            <Trash2 className="w-4 h-4" />
-            <span>Clear All Mock Data</span>
-          </button>
-
-          <button
-            onClick={handleReset}
-            disabled={isProcessing}
-            className="flex items-center justify-center space-x-1.5 p-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 font-bold text-xs transition-colors disabled:opacity-50"
-          >
-            <Sparkles className="w-4 h-4 text-amber-500" />
-            <span>Load Sample Setup</span>
-          </button>
-
-          <button
-            onClick={handleExportJSON}
-            className="flex items-center justify-center space-x-1.5 p-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-teal-700 font-bold text-xs transition-colors"
-          >
-            <Download className="w-4 h-4" />
-            <span>Export Config JSON</span>
-          </button>
-        </div>
-      </div>
-
+      <Group title="Data">
+        <Row label={<span className="text-accent">Export Configuration</span>} onClick={handleExportJSON} />
+        <Row
+          label={<span className={isProcessing ? "text-dim" : "text-accent"}>Load Sample Devices</span>}
+          onClick={isProcessing ? undefined : handleReset}
+        />
+        <Row
+          label={<span className={isProcessing || devices.length === 0 ? "text-dim" : "text-danger"}>Clear All Devices</span>}
+          onClick={isProcessing || devices.length === 0 ? undefined : handleClearAll}
+        />
+      </Group>
     </div>
   );
 };

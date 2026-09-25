@@ -2,7 +2,8 @@
 
 import React, { useState } from "react";
 import { loginUser } from "@/lib/userStore";
-import { ShieldCheck, User, KeyRound, AlertCircle } from "lucide-react";
+import { ModalShell } from "./ui/ModalShell";
+import { Button } from "./ui/Button";
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -19,8 +20,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [password, setPassword] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-
-  if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,76 +42,42 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
-      <div className="relative w-full max-w-sm bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden text-slate-800">
-        
-        {/* Header */}
-        <div className="flex items-center space-x-3 px-6 py-5 border-b border-slate-100 bg-slate-50/50">
-          <div className="w-10 h-10 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center border border-teal-200 shrink-0">
-            <ShieldCheck className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="text-base font-bold text-slate-900">Account Sign In</h3>
-            <p className="text-xs text-slate-500">Sign in with your username and password</p>
-          </div>
+    <ModalShell isOpen={isOpen} onClose={onClose} className="max-w-sm">
+      <form onSubmit={handleSubmit} className="p-6">
+        <h3 className="mb-5 text-center text-xl font-semibold tracking-tight">Switch Account</h3>
+
+        <div className="overflow-hidden rounded-xl border border-white/15 focus-within:border-accent focus-within:shadow-[0_0_0_4px_rgba(0,113,227,0.15)]">
+          <input
+            type="text"
+            required
+            autoComplete="username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="Username"
+            className="w-full border-b border-white/15 bg-transparent px-4 py-3 text-[15px] placeholder:text-dim focus:outline-none"
+          />
+          <input
+            type="password"
+            required
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Password"
+            className="w-full bg-transparent px-4 py-3 text-[15px] placeholder:text-dim focus:outline-none"
+          />
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          
-          {errorMsg && (
-            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-center space-x-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{errorMsg}</span>
-            </div>
-          )}
+        <p className="mt-2 h-5 text-center text-[13px] text-danger">{errorMsg}</p>
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Username
-            </label>
-            <div className="relative">
-              <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-              <input
-                type="text"
-                required
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="Enter username"
-                className="w-full pl-9 pr-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-teal-500"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Password
-            </label>
-            <div className="relative">
-              <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter password"
-                className="w-full pl-9 pr-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-teal-500"
-              />
-            </div>
-          </div>
-
-          <div className="pt-2">
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-2xs active:scale-95 transition-all disabled:opacity-50"
-            >
-              {isLoading ? "Signing in..." : "Sign In"}
-            </button>
-          </div>
-
-        </form>
-      </div>
-    </div>
+        <div className="mt-2 flex gap-2">
+          <Button type="button" variant="secondary" onClick={onClose} className="flex-1 py-2.5 text-[15px]">
+            Cancel
+          </Button>
+          <Button type="submit" disabled={isLoading} className="flex-1 py-2.5 text-[15px]">
+            {isLoading ? "Signing In…" : "Sign In"}
+          </Button>
+        </div>
+      </form>
+    </ModalShell>
   );
 };

@@ -10,23 +10,11 @@ import { ToastContainer } from "@/components/ToastContainer";
 import { SettingsView } from "@/components/settings/SettingsView";
 import { LoginModal } from "@/components/LoginModal";
 import { LoginPage } from "@/components/LoginPage";
-import {
-  Cpu,
-  Plus,
-  Settings,
-  Home,
-  RefreshCw,
-  Search,
-  X,
-  Layers,
-  Sparkles,
-  Wifi,
-  Server,
-  Trash2,
-  ShieldCheck,
-  User,
-  LogOut,
-} from "lucide-react";
+import { Button } from "@/components/ui/Button";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
+import { Backdrop } from "@/components/ui/Backdrop";
+import { easeApple, springs } from "@/lib/deviceTheme";
+import { Plus, Settings, Search, X, House, User, LogOut } from "lucide-react";
 
 export default function HomeControlPage() {
   const [activeTab, setActiveTab] = useState<string>("All"); // "All" | roomName | "settings"
@@ -38,6 +26,8 @@ export default function HomeControlPage() {
   // User Auth Session State
   const [userSession, setUserSession] = useState<{ username: string; role: "admin" | "user" } | null>(null);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [showAccount, setShowAccount] = useState(false);
+
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -60,7 +50,6 @@ export default function HomeControlPage() {
     if (typeof window !== "undefined") {
       localStorage.setItem("home_control_user", JSON.stringify(session));
     }
-    showToast("success", `Signed in as ${username}`, role === "admin" ? "Admin Access Granted" : "Standard User Access");
   };
 
   const handleLogout = () => {
@@ -69,7 +58,6 @@ export default function HomeControlPage() {
       localStorage.removeItem("home_control_user");
     }
     setActiveTab("All");
-    showToast("info", "Signed out successfully");
   };
 
   // Loading & Modal states
@@ -94,7 +82,7 @@ export default function HomeControlPage() {
 
       setTimeout(() => {
         setToasts((prev) => prev.filter((t) => t.id !== id));
-      }, 4000);
+      }, 2500);
     },
     []
   );
@@ -169,12 +157,6 @@ export default function HomeControlPage() {
   // Unique room list
   const existingRooms = Array.from(new Set(devices.map((d) => d.room))).filter(Boolean);
 
-  // Room Counts
-  const roomCounts = devices.reduce<Record<string, number>>((acc, d) => {
-    acc["All"] = (acc["All"] || 0) + 1;
-    acc[d.room] = (acc[d.room] || 0) + 1;
-    return acc;
-  }, {});
 
   const onDevicesCount = devices.filter((d) => d.powerState === "on").length;
 
@@ -192,8 +174,6 @@ export default function HomeControlPage() {
           : d
       )
     );
-
-    showToast("success", `✓ ${targetDevice.name} turned ${nextState.toUpperCase()}`);
 
     const effectiveMode = networkConfig?.mode === "gateway" || targetDevice.mode === "gateway" ? "gateway" : "direct";
 
@@ -262,7 +242,7 @@ export default function HomeControlPage() {
       if (res.ok) {
         const newDev = await res.json();
         updateDevicesState((prev) => [...prev, newDev]);
-        showToast("success", "✓ Device added", `${newDev.name} registered`);
+        showToast("success", "Device Added");
       } else {
         const fallbackDev: Device = {
           id: `dev-${Date.now()}`,
@@ -276,7 +256,7 @@ export default function HomeControlPage() {
           connectionState: "connected",
         };
         updateDevicesState((prev) => [...prev, fallbackDev]);
-        showToast("success", "✓ Device added", `${fallbackDev.name} registered`);
+        showToast("success", "Device Added");
       }
     } catch {
       const fallbackDev: Device = {
@@ -291,7 +271,7 @@ export default function HomeControlPage() {
         connectionState: "connected",
       };
       updateDevicesState((prev) => [...prev, fallbackDev]);
-      showToast("success", "✓ Device added", `${fallbackDev.name} registered`);
+      showToast("success", "Device Added");
     }
   };
 
@@ -305,7 +285,7 @@ export default function HomeControlPage() {
       });
     } catch {}
     updateDevicesState((prev) => prev.map((d) => (d.id === id ? { ...d, ...updates } : d)));
-    showToast("success", "✓ Device updated");
+    showToast("success", "Saved");
   };
 
   // Delete Device
@@ -315,7 +295,7 @@ export default function HomeControlPage() {
       await fetch(`/api/devices/${device.id}`, { method: "DELETE" });
     } catch {}
     updateDevicesState((prev) => prev.filter((d) => d.id !== device.id));
-    showToast("info", "✓ Device removed");
+    showToast("info", "Device Removed");
   };
 
   // Clear Mock Data
@@ -324,7 +304,7 @@ export default function HomeControlPage() {
       await fetch("/api/devices/clear", { method: "POST" });
     } catch {}
     updateDevicesState([]);
-    showToast("info", "Cleared mock data");
+    showToast("info", "Sample Data Cleared");
   };
 
   // Reset Defaults
@@ -353,195 +333,147 @@ export default function HomeControlPage() {
   });
 
   if (!userSession) {
-    return <LoginPage onLoginSuccess={handleLoginSuccess} />;
+    return (
+      <>
+        <LoginPage onLoginSuccess={handleLoginSuccess} />
+        <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+      </>
+    );
   }
 
+  const isAdmin = userSession.role === "admin";
+  const isSettings = activeTab === "settings" && isAdmin;
+  const tabs = [
+    { id: "All", label: "All" },
+    ...existingRooms.map((room) => ({ id: room, label: room })),
+  ];
+  const navItems = [
+    { id: "home", label: "Home", icon: House, active: !isSettings, action: () => setActiveTab("All") },
+    ...(isAdmin
+      ? [{ id: "settings", label: "Settings", icon: Settings, active: isSettings, action: () => setActiveTab("settings") }]
+      : []),
+  ];
+  const circleBtn = "glass-btn flex h-[52px] w-[52px] items-center justify-center rounded-full text-ink";
+  const rise = (i: number) => ({
+    initial: { opacity: 0, y: 16 },
+    animate: { opacity: 1, y: 0 },
+    transition: { duration: 0.6, ease: easeApple, delay: i * 0.07 },
+  });
+
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
-      
-      {/* Toast Notifications */}
+    <MotionConfig reducedMotion="user">
+    <div className="relative flex min-h-screen flex-col text-ink">
+      <Backdrop />
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
-      {/* Top Header */}
-      <header className="sticky top-0 z-40 w-full bg-white/90 backdrop-blur-md border-b border-slate-200/80">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3">
-          <div className="flex items-center justify-between">
-            
-            {/* Title & Connection Dot */}
-            <div className="flex items-center space-x-2">
-              <div className="w-8 h-8 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center border border-teal-200">
-                <Cpu className="w-4 h-4" />
-              </div>
-              <div>
-                <h1 className="text-base font-bold text-slate-900 leading-tight">
-                  Home Control
-                </h1>
-                <p className="text-[10px] text-slate-500 flex items-center space-x-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                  <span>{onDevicesCount} Active ON</span>
-                  <span>•</span>
-                  <span>{devices.length} Devices</span>
-                </p>
-              </div>
-            </div>
-
-            {/* Quick Actions */}
-            <div className="flex items-center space-x-1.5">
-              {/* User Account Button */}
-              {userSession ? (
-                <div className="flex items-center space-x-1 sm:space-x-1.5">
-                  <button
-                    onClick={() => setIsLoginModalOpen(true)}
-                    className={`flex items-center space-x-1.5 px-2.5 sm:px-3 py-1 rounded-xl text-xs font-semibold border transition-all ${
-                      userSession.role === "admin"
-                        ? "bg-purple-50 text-purple-800 border-purple-200 hover:bg-purple-100"
-                        : "bg-teal-50 text-teal-800 border-teal-200 hover:bg-teal-100"
-                    }`}
-                    title="Click to Switch Account"
+      <main className="mx-auto w-full max-w-5xl flex-1 px-5 pb-36 pt-6 sm:px-8 sm:pt-10">
+        {/* Top row: avatar + actions */}
+        <motion.div {...rise(0)} className="flex items-center justify-between">
+          <div className="relative">
+            <button
+              onClick={() => setShowAccount(!showAccount)}
+              className="flex h-[52px] w-[52px] items-center justify-center rounded-full bg-gradient-to-br from-[#f4f8a0] to-[#c9d23a] text-[20px] font-semibold uppercase text-[#151515] ring-2 ring-white/10 transition-transform active:scale-90"
+              aria-label="Account"
+            >
+              {userSession.username.charAt(0)}
+            </button>
+            <AnimatePresence>
+              {showAccount && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowAccount(false)} />
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.92, y: -4 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.94 }}
+                    transition={{ duration: 0.18, ease: easeApple }}
+                    style={{ transformOrigin: "top left" }}
+                    className="absolute left-0 z-20 mt-2 w-56 overflow-hidden rounded-2xl border border-white/10 bg-[#26272c]/95 py-1 text-[14px] shadow-2xl backdrop-blur-xl"
                   >
-                    {userSession.role === "admin" ? (
-                      <ShieldCheck className="w-3.5 h-3.5 text-purple-600 shrink-0" />
-                    ) : (
-                      <User className="w-3.5 h-3.5 text-teal-600 shrink-0" />
-                    )}
-                    <span className="font-bold">{userSession.username}</span>
-                  </button>
-
-                  <button
-                    onClick={handleLogout}
-                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"
-                    title="Sign Out"
-                  >
-                    <LogOut className="w-4 h-4" />
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setIsLoginModalOpen(true)}
-                  className="flex items-center space-x-1.5 px-3 py-1 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs shadow-2xs transition-colors"
-                >
-                  <User className="w-3.5 h-3.5" />
-                  <span>Sign In</span>
-                </button>
+                    <div className="px-4 py-2.5">
+                      <p className="text-[16px] font-medium capitalize">{userSession.username}</p>
+                      <p className="text-muted">{isAdmin ? "Administrator" : "Member"}</p>
+                    </div>
+                    <div className="my-1 h-px bg-line" />
+                    <button
+                      onClick={() => {
+                        setShowAccount(false);
+                        setIsLoginModalOpen(true);
+                      }}
+                      className="flex w-full items-center justify-between px-4 py-2.5 text-left hover:bg-white/[0.06]"
+                    >
+                      Switch Account
+                      <User className="h-4 w-4 opacity-70" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowAccount(false);
+                        handleLogout();
+                      }}
+                      className="flex w-full items-center justify-between px-4 py-2.5 text-left text-danger hover:bg-white/[0.06]"
+                    >
+                      Sign Out
+                      <LogOut className="h-4 w-4" />
+                    </button>
+                  </motion.div>
+                </>
               )}
-
-              <button
-                onClick={() => setShowSearch(!showSearch)}
-                className={`p-1.5 sm:p-2 rounded-xl border transition-colors ${
-                  showSearch ? "bg-teal-50 border-teal-300 text-teal-700" : "bg-slate-100 border-slate-200 text-slate-600"
-                }`}
-                title="Search Devices"
-              >
-                <Search className="w-4 h-4" />
-              </button>
-
-              {/* + Add Button only visible for Admin */}
-              {userSession?.role === "admin" && (
-                <button
-                  onClick={() => setIsAddModalOpen(true)}
-                  className="flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs shadow-2xs transition-colors"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span className="hidden sm:inline">Add</span>
-                </button>
-              )}
-            </div>
-
+            </AnimatePresence>
           </div>
 
-          {/* Collapsible Search Drawer */}
-          {showSearch && (
-            <div className="mt-2 pt-2 border-t border-slate-100 flex items-center space-x-2 animate-in slide-in-from-top-1 duration-150">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Type device name or room..."
-                className="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-teal-500"
-                autoFocus
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery("")}
-                  className="p-1.5 text-slate-400 hover:text-slate-700 text-xs"
-                >
-                  Clear
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Minimal Tab Navigation Bar */}
-          <div className="flex items-center space-x-1 overflow-x-auto no-scrollbar pt-3 border-t border-slate-100 mt-2">
-            
-            {/* All Tab */}
-            <button
-              onClick={() => setActiveTab("All")}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border ${
-                activeTab === "All"
-                  ? "bg-teal-600 text-white border-teal-600 shadow-2xs"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200 border-slate-200/80"
-              }`}
-            >
-              <Home className="w-3.5 h-3.5" />
-              <span>All</span>
-              <span className={`px-1.5 py-0.2 rounded-md text-[10px] ${activeTab === "All" ? "bg-white/20 text-white" : "bg-slate-200 text-slate-600"}`}>
-                {devices.length}
-              </span>
-            </button>
-
-            {/* Room Tabs */}
-            {existingRooms.map((room) => {
-              const isActive = activeTab === room;
-              const count = roomCounts[room] || 0;
-              return (
-                <button
-                  key={room}
-                  onClick={() => setActiveTab(room)}
-                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border ${
-                    isActive
-                      ? "bg-teal-600 text-white border-teal-600 shadow-2xs"
-                      : "bg-slate-100 text-slate-600 hover:bg-slate-200 border-slate-200/80"
-                  }`}
-                >
-                  <span>{room}</span>
-                  <span className={`px-1.5 py-0.2 rounded-md text-[10px] ${isActive ? "bg-white/20 text-white" : "bg-slate-200 text-slate-600"}`}>
-                    {count}
-                  </span>
-                </button>
-              );
-            })}
-
-            {/* Settings Tab (Only visible for Admin) */}
-            {userSession?.role === "admin" && (
-              <button
-                onClick={() => setActiveTab("settings")}
-                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border ml-auto ${
-                  activeTab === "settings"
-                    ? "bg-slate-900 text-white border-slate-900 shadow-2xs"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200 border-slate-200/80"
-                }`}
-              >
-                <Settings className="w-3.5 h-3.5" />
-                <span>Settings</span>
+          <div className="flex items-center gap-2">
+            {!isSettings && (
+              <button onClick={() => setShowSearch(!showSearch)} className={circleBtn} aria-label="Search">
+                <AnimatePresence mode="wait" initial={false}>
+                  <motion.span
+                    key={showSearch ? "x" : "s"}
+                    initial={{ rotate: -90, opacity: 0 }}
+                    animate={{ rotate: 0, opacity: 1 }}
+                    exit={{ rotate: 90, opacity: 0 }}
+                    transition={{ duration: 0.15 }}
+                    className="flex"
+                  >
+                    {showSearch ? <X className="h-5 w-5" /> : <Search className="h-5 w-5" />}
+                  </motion.span>
+                </AnimatePresence>
               </button>
             )}
-
+            {isAdmin && (
+              <button onClick={() => setIsAddModalOpen(true)} className={circleBtn} aria-label="Add device">
+                <Plus className="h-6 w-6" />
+              </button>
+            )}
           </div>
+        </motion.div>
 
-        </div>
-      </header>
+        {/* Greeting */}
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.h1
+            key={isSettings ? "settings" : "home"}
+            initial={{ opacity: 0, y: 14, filter: "blur(6px)" }}
+            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+            exit={{ opacity: 0, y: -10, filter: "blur(6px)" }}
+            transition={{ duration: 0.5, ease: easeApple, delay: 0.05 }}
+            className="mb-7 mt-8 text-[40px] font-medium leading-[1.1] tracking-tight sm:text-[52px]"
+          >
+            {isSettings ? (
+              "Settings"
+            ) : (
+              <>
+                Hi <span className="capitalize">{userSession.username}</span>!
+                <br />
+                Welcome Home
+              </>
+            )}
+          </motion.h1>
+        </AnimatePresence>
 
-      {/* Main Content Area */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6">
-        
         {isLoadingApp ? (
-          <div className="flex flex-col items-center justify-center py-20 space-y-2">
-            <RefreshCw className="w-6 h-6 text-teal-600 animate-spin" />
-            <p className="text-xs text-slate-500">Loading devices...</p>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="skeleton h-[210px] rounded-[28px]" />
+            ))}
           </div>
-        ) : activeTab === "settings" && userSession?.role === "admin" ? (
-          /* Settings View */
+        ) : isSettings ? (
           <SettingsView
             devices={devices}
             networkConfig={networkConfig}
@@ -564,70 +496,139 @@ export default function HomeControlPage() {
             onResetDefaults={handleResetDefaults}
             onClearMockData={handleClearMockData}
             showToast={showToast}
+            username={userSession.username}
+            onSwitchAccount={() => setIsLoginModalOpen(true)}
+            onSignOut={handleLogout}
           />
         ) : (
-          /* Devices Grid View */
-          <div className="space-y-4">
-            
+          <>
+            {/* Search */}
+            <AnimatePresence initial={false}>
+              {showSearch && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.3, ease: easeApple }}
+                  className="overflow-hidden"
+                >
+                  <div className="relative mb-4">
+                    <Search className="absolute left-5 top-1/2 h-5 w-5 -translate-y-1/2 text-dim" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search devices"
+                      className="glass h-[52px] w-full rounded-full pl-13 pr-5 text-[16px] text-ink placeholder:text-dim focus:outline-none"
+                      autoFocus
+                    />
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Rooms */}
+            <motion.nav {...rise(2)} className="no-scrollbar -mx-5 mb-5 flex gap-2 overflow-x-auto px-5 sm:mx-0 sm:px-0">
+              {tabs.map((tab) => {
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`relative h-[52px] shrink-0 whitespace-nowrap rounded-full px-6 text-[16px] transition-colors active:scale-95 ${
+                      isActive ? "text-[#151515]" : "glass-btn text-ink/85"
+                    }`}
+                  >
+                    {isActive && (
+                      <motion.span
+                        layoutId="room-tab"
+                        transition={springs.snappy}
+                        className="absolute inset-0 rounded-full bg-white shadow-[0_6px_20px_-6px_rgba(255,255,255,0.35)]"
+                      />
+                    )}
+                    <span className="relative">{tab.label}</span>
+                  </button>
+                );
+              })}
+            </motion.nav>
+
             {filteredDevices.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 px-4 text-center rounded-2xl bg-white border border-slate-200 shadow-2xs">
-                <Cpu className="w-10 h-10 text-slate-300 mb-3" />
-                <h3 className="text-sm font-bold text-slate-800 mb-1">
-                  {devices.length === 0 ? "No devices added yet" : "No devices found"}
-                </h3>
-                <p className="text-xs text-slate-500 max-w-xs mb-4">
-                  {devices.length === 0
-                    ? "Add your real ESP32 device IP address or load sample devices to test."
-                    : `No devices found in tab '${activeTab}'.`}
-                </p>
-
-                <div className="flex items-center space-x-2">
-                  {userSession?.role === "admin" && (
-                    <button
-                      onClick={() => setIsAddModalOpen(true)}
-                      className="flex items-center space-x-1 px-3.5 py-2 rounded-xl bg-teal-600 text-white font-semibold text-xs shadow-2xs"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>Add Real Device</span>
-                    </button>
-                  )}
-
-                  {devices.length === 0 && (
-                    <button
-                      onClick={handleResetDefaults}
-                      className="flex items-center space-x-1 px-3.5 py-2 rounded-xl bg-slate-100 text-slate-700 border border-slate-200 font-semibold text-xs"
-                    >
-                      <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                      <span>Load Sample Setup</span>
-                    </button>
-                  )}
-                </div>
-              </div>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.4 }}
+                className="glass flex flex-col items-center rounded-[28px] px-6 py-16 text-center"
+              >
+                <motion.div
+                  animate={{ y: [0, -6, 0] }}
+                  transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                  className="glass-btn mb-5 flex h-16 w-16 items-center justify-center rounded-full"
+                >
+                  <House className="h-7 w-7 text-accent" strokeWidth={1.8} />
+                </motion.div>
+                <h3 className="text-[20px] font-medium">{devices.length === 0 ? "No Devices" : "No Results"}</h3>
+                {devices.length === 0 && (
+                  <div className="mt-6 flex gap-2">
+                    {isAdmin && (
+                      <Button onClick={() => setIsAddModalOpen(true)} className="px-6 py-3 text-[15px]">
+                        Add Device
+                      </Button>
+                    )}
+                    <Button variant="secondary" onClick={handleResetDefaults} className="px-6 py-3 text-[15px]">
+                      Load Sample
+                    </Button>
+                  </div>
+                )}
+              </motion.div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5 items-stretch">
-                {filteredDevices.map((device) => (
-                  <DeviceCard
-                    key={device.id}
-                    device={device}
-                    onTogglePower={handleTogglePower}
-                    onTestConnection={handleTestConnection}
-                    onEditDevice={(device) => setEditingDevice(device)}
-                    onDeleteDevice={handleDeleteDevice}
-                    isActionLoading={false}
-                  />
-                ))}
-              </div>
+              <motion.div layout className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                <AnimatePresence mode="popLayout">
+                  {filteredDevices.map((device, i) => (
+                    <DeviceCard
+                      key={device.id}
+                      index={i}
+                      device={device}
+                      onTogglePower={handleTogglePower}
+                      onTestConnection={handleTestConnection}
+                      onEditDevice={(device) => setEditingDevice(device)}
+                      onDeleteDevice={handleDeleteDevice}
+                      isActionLoading={false}
+                    />
+                  ))}
+                </AnimatePresence>
+              </motion.div>
             )}
-
-          </div>
+          </>
         )}
-
       </main>
 
-      {/* Footer */}
-      <footer className="w-full border-t border-slate-200/80 py-3 text-center text-[11px] text-slate-400 bg-white">
-        Home Control
-      </footer>
+      {/* Floating bottom nav (hidden when there is only one destination) */}
+      {navItems.length > 1 && (
+      <motion.nav
+        initial={{ y: 80, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ type: "spring", stiffness: 260, damping: 26, delay: 0.3 }}
+        className="glass fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-full p-2"
+      >
+        {navItems.map((item) => (
+          <button
+            key={item.id}
+            onClick={item.action}
+            className="relative flex h-14 w-14 items-center justify-center rounded-full transition-transform active:scale-90"
+            aria-label={item.label}
+          >
+            {item.active && (
+              <motion.span
+                layoutId="nav-pill"
+                transition={springs.snappy}
+                className="absolute inset-0 rounded-full bg-white shadow-[0_4px_18px_-4px_rgba(255,255,255,0.4)]"
+              />
+            )}
+            <item.icon className={`relative h-6 w-6 ${item.active ? "text-[#151515]" : "text-ink"}`} strokeWidth={1.8} />
+          </button>
+        ))}
+      </motion.nav>
+      )}
 
       {/* Modals */}
       <LoginModal
@@ -662,5 +663,6 @@ export default function HomeControlPage() {
       />
 
     </div>
+    </MotionConfig>
   );
 }

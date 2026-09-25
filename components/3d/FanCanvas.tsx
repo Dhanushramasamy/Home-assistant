@@ -37,15 +37,15 @@ function FanModel({ isOn, speed = 3 }: FanSceneProps) {
       {/* Main Motor Housing */}
       <mesh position={[0, 0.4, 0]}>
         <cylinderGeometry args={[0.38, 0.42, 0.26, 32]} />
-        <meshStandardMaterial color={isOn ? "#0EA5E9" : "#2B2D33"} metalness={0.85} roughness={0.2} />
+        <meshStandardMaterial color="#3a3c44" metalness={0.85} roughness={0.2} />
       </mesh>
 
       {/* Glowing Neon LED Ring */}
       <mesh position={[0, 0.27, 0]}>
         <torusGeometry args={[0.39, 0.02, 16, 32]} />
         <meshStandardMaterial
-          color={isOn ? "#38BDF8" : "#444855"}
-          emissive={isOn ? "#0284C7" : "#000000"}
+          color={isOn ? "#E8F047" : "#55585f"}
+          emissive={isOn ? "#C7D22A" : "#000000"}
           emissiveIntensity={isOn ? 2.0 : 0}
         />
       </mesh>
@@ -55,19 +55,19 @@ function FanModel({ isOn, speed = 3 }: FanSceneProps) {
         {/* Blade 1 */}
         <mesh position={[0.65, 0, 0]} rotation={[0.12, 0, 0]}>
           <boxGeometry args={[0.92, 0.02, 0.18]} />
-          <meshStandardMaterial color="#3B404D" roughness={0.3} metalness={0.7} />
+          <meshStandardMaterial color="#555862" roughness={0.35} metalness={0.6} />
         </mesh>
 
         {/* Blade 2 */}
         <mesh position={[-0.325, 0, 0.563]} rotation={[0, (Math.PI * 2) / 3, 0.12]}>
           <boxGeometry args={[0.92, 0.02, 0.18]} />
-          <meshStandardMaterial color="#3B404D" roughness={0.3} metalness={0.7} />
+          <meshStandardMaterial color="#555862" roughness={0.35} metalness={0.6} />
         </mesh>
 
         {/* Blade 3 */}
         <mesh position={[-0.325, 0, -0.563]} rotation={[0, -(Math.PI * 2) / 3, -0.12]}>
           <boxGeometry args={[0.92, 0.02, 0.18]} />
-          <meshStandardMaterial color="#3B404D" roughness={0.3} metalness={0.7} />
+          <meshStandardMaterial color="#555862" roughness={0.35} metalness={0.6} />
         </mesh>
       </group>
     </group>
@@ -76,7 +76,7 @@ function FanModel({ isOn, speed = 3 }: FanSceneProps) {
 
 export const FanCanvas: React.FC<FanSceneProps> = ({ isOn, speed = 3 }) => {
   return (
-    <div className="w-full h-48 sm:h-56 relative rounded-2xl overflow-hidden bg-gradient-to-b from-slate-900/60 to-slate-900/90 border border-sky-500/20 shadow-inner">
+    <div className="w-full h-64 sm:h-72 relative">
       <Canvas
         camera={{ position: [0, 1.8, 2.8], fov: 45 }}
         gl={{ antialias: true, alpha: true }}

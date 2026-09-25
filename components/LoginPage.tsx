@@ -1,8 +1,11 @@
 "use client";
 
 import React, { useState } from "react";
+import { AnimatePresence, motion, useAnimationControls } from "motion/react";
 import { loginUser } from "@/lib/userStore";
-import { ShieldCheck, User, KeyRound, AlertCircle, Cpu } from "lucide-react";
+import { ArrowRight, House, Loader2 } from "lucide-react";
+import { easeApple } from "@/lib/deviceTheme";
+import { Backdrop } from "./ui/Backdrop";
 
 interface LoginPageProps {
   onLoginSuccess: (username: string, role: "admin" | "user") => void;
@@ -13,6 +16,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const [password, setPassword] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const shake = useAnimationControls();
+
+  const fail = (msg: string) => {
+    setErrorMsg(msg);
+    shake.start({ x: [0, -8, 8, -5, 5, 0], transition: { duration: 0.4 } });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,90 +33,110 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
       if (result.success) {
         onLoginSuccess(result.username, result.role);
       } else {
-        setErrorMsg(result.message);
+        fail(result.message);
       }
     } catch (err) {
-      setErrorMsg((err as Error).message);
+      fail((err as Error).message);
     } finally {
       setIsLoading(false);
     }
   };
 
+  const canSubmit = username.trim() && password && !isLoading;
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 text-slate-900 font-sans">
-      <div className="w-full max-w-md bg-white border border-slate-200 rounded-3xl shadow-xl overflow-hidden">
-        
-        {/* Header */}
-        <div className="flex flex-col items-center justify-center text-center p-8 border-b border-slate-100 bg-slate-50/50">
-          <div className="w-14 h-14 rounded-2xl bg-teal-100 text-teal-700 flex items-center justify-center border border-teal-200 mb-3 shadow-2xs">
-            <Cpu className="w-7 h-7" />
-          </div>
-          <h2 className="text-xl font-bold text-slate-900">Home Control</h2>
-          <p className="text-xs text-slate-500 mt-1">Please sign in with your account to access devices</p>
-        </div>
+    <div className="relative flex min-h-screen flex-col items-center justify-center px-4">
+      <Backdrop />
+      <div className="flex w-full max-w-[360px] flex-col">
+        <motion.div
+          initial={{ scale: 0.5, opacity: 0, rotate: -12 }}
+          animate={{ scale: 1, opacity: 1, rotate: 0 }}
+          transition={{ type: "spring", stiffness: 260, damping: 18 }}
+          className="mb-8"
+        >
+          <motion.div
+            animate={{ y: [0, -5, 0] }}
+            transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+            className="glass-btn flex h-16 w-16 items-center justify-center rounded-full"
+          >
+            <House className="h-7 w-7 text-accent" style={{ filter: "drop-shadow(0 0 8px rgb(232 240 71 / 0.6))" }} strokeWidth={1.8} />
+          </motion.div>
+        </motion.div>
+        <motion.h1
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: easeApple, delay: 0.15 }}
+          className="mb-10 text-[40px] font-medium leading-[1.1] tracking-tight text-ink"
+        >
+          Hi there!
+          <br />
+          Welcome Home
+        </motion.h1>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="p-8 space-y-5">
-          {errorMsg && (
-            <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-center space-x-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{errorMsg}</span>
-            </div>
-          )}
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Username
-            </label>
+        <motion.div
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: easeApple, delay: 0.25 }}
+          className="w-full"
+        >
+        <motion.form animate={shake} onSubmit={handleSubmit} className="w-full">
+          <div className="glass overflow-hidden rounded-[28px] transition-shadow focus-within:shadow-[0_0_0_4px_rgba(232,240,71,0.12)]">
+            <input
+              type="text"
+              required
+              autoComplete="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Username"
+              className="w-full border-b border-line bg-transparent px-5 py-4 text-[17px] text-ink placeholder:text-dim focus:outline-none"
+            />
             <div className="relative">
-              <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-              <input
-                type="text"
-                required
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="Enter your username"
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-teal-500 transition-colors"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Password
-            </label>
-            <div className="relative">
-              <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
               <input
                 type="password"
                 required
+                autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter password"
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-teal-500 transition-colors"
+                placeholder="Password"
+                className="w-full bg-transparent py-4 pl-5 pr-16 text-[17px] text-ink placeholder:text-dim focus:outline-none"
               />
+              <motion.button
+                type="submit"
+                disabled={!canSubmit}
+                whileTap={{ scale: 0.92 }}
+                className={`absolute right-2 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full transition-all duration-300 ${
+                  canSubmit
+                    ? "bg-accent text-accent-ink shadow-[0_0_18px_2px_rgba(232,240,71,0.4)]"
+                    : "border border-line-strong text-dim"
+                }`}
+                aria-label="Sign in"
+              >
+                {isLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <motion.span animate={{ x: canSubmit ? 0 : -2 }} transition={{ type: "spring", stiffness: 400, damping: 20 }} className="flex">
+                    <ArrowRight className="h-5 w-5" strokeWidth={2.2} />
+                  </motion.span>
+                )}
+              </motion.button>
             </div>
           </div>
 
-          <div className="pt-2">
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full py-3 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs sm:text-sm shadow-md active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center space-x-2"
-            >
-              {isLoading ? (
-                <span>Signing in...</span>
-              ) : (
-                <>
-                  <ShieldCheck className="w-4 h-4" />
-                  <span>Sign In to Dashboard</span>
-                </>
-              )}
-            </button>
-          </div>
-        </form>
+          <AnimatePresence>
+            {errorMsg && (
+              <motion.p
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="mt-3 text-center text-[13px] text-danger"
+              >
+                {errorMsg}
+              </motion.p>
+            )}
+          </AnimatePresence>
+        </motion.form>
+        </motion.div>
       </div>
-      <p className="text-[11px] text-slate-400 mt-6">Home Control • Secure ESP32 & Pi Gateway Access</p>
     </div>
   );
 };

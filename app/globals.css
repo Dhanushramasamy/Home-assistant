@@ -1,21 +1,174 @@
 @import "tailwindcss";
 
+/*
+ * "Charcoal glass" palette: dark smoked-glass surfaces over a softly lit
+ * backdrop, with one lime-yellow accent for anything that is on or active.
+ */
+@theme {
+  --color-canvas: #141518;
+  --color-surface: #202126;
+  --color-surface-2: #26272c;
+  --color-surface-3: #313238;
+  --color-line: rgb(255 255 255 / 0.08);
+  --color-line-strong: rgb(255 255 255 / 0.14);
+
+  --color-ink: #f4f4f5;
+  --color-muted: #a1a1aa;
+  --color-dim: #71717a;
+
+  --color-accent: #e8f047;
+  --color-accent-hover: #dbe33a;
+  --color-accent-ink: #151515;
+
+  --color-tint-light: #e8f047;
+  --color-tint-fan: #7dd3fc;
+  --color-tint-plug: #86efac;
+  --color-tint-other: #f0abfc;
+  --color-danger: #f87171;
+  --color-success: #a3e635;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", var(--font-inter), system-ui, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", var(--font-inter), system-ui, sans-serif;
+
+  --ease-apple: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
 :root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
+  --background: #141518;
+  --foreground: #f4f4f5;
+  color-scheme: dark;
 }
 
 body {
   background-color: var(--background);
   color: var(--foreground);
-  font-family: var(--font-jakarta), var(--font-outfit), system-ui, -apple-system, sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.01em;
 }
 
-/* Custom scrollbars */
+::selection {
+  background: rgb(232 240 71 / 0.3);
+}
+
+.card,
+.glass {
+  background: rgb(28 29 34 / 0.55);
+  border: 1px solid rgb(255 255 255 / 0.09);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06), 0 20px 40px -24px rgb(0 0 0 / 0.6);
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+}
+
+/* Round glass icon button, as in the reference */
+.glass-btn {
+  background: rgb(255 255 255 / 0.09);
+  border: 1px solid rgb(255 255 255 / 0.1);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  transition: background-color 0.2s ease, transform 0.15s ease;
+}
+.glass-btn:hover {
+  background: rgb(255 255 255 / 0.12);
+}
+.glass-btn:active {
+  transform: scale(0.92);
+}
+
+/* Light sweep across gradient buttons on hover */
+.sheen {
+  position: relative;
+  overflow: hidden;
+}
+.sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: linear-gradient(100deg, transparent, rgb(255 255 255 / 0.45), transparent);
+  transform: translateX(-160%) skewX(-18deg);
+  pointer-events: none;
+}
+.sheen:hover::after {
+  animation: sheen 0.9s ease-out;
+}
+@keyframes sheen {
+  to { transform: translateX(360%) skewX(-18deg); }
+}
+
+/* Aurora backdrop blobs */
+@keyframes aurora-a {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(12vw, 8vh, 0) scale(1.15); }
+}
+@keyframes aurora-b {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1.1); }
+  50% { transform: translate3d(-14vw, 6vh, 0) scale(0.9); }
+}
+@keyframes aurora-c {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(0.95); }
+  50% { transform: translate3d(6vw, -10vh, 0) scale(1.2); }
+}
+.aurora-a { animation: aurora-a 22s ease-in-out infinite; }
+.aurora-b { animation: aurora-b 28s ease-in-out infinite; }
+.aurora-c { animation: aurora-c 34s ease-in-out infinite; }
+
+.skeleton {
+  background: rgb(255 255 255 / 0.06);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+/* Form fields */
+.field {
+  width: 100%;
+  background: rgb(255 255 255 / 0.05);
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 14px;
+  color: var(--color-ink);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.field::placeholder {
+  color: var(--color-dim);
+}
+.field:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 4px rgb(232 240 71 / 0.15);
+}
+
+/* iOS-style range slider */
+input[type="range"].slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, var(--range-color, #e8f047) var(--range-pct, 50%), rgb(255 255 255 / 0.12) var(--range-pct, 50%));
+  cursor: pointer;
+}
+input[type="range"].slider:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+input[type="range"].slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 9999px;
+  background: #fff;
+  box-shadow: 0 0.5px 4px rgb(0 0 0 / 0.12), 0 3px 8px rgb(0 0 0 / 0.15);
+}
+input[type="range"].slider::-moz-range-thumb {
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 9999px;
+  background: #fff;
+  box-shadow: 0 0.5px 4px rgb(0 0 0 / 0.12), 0 3px 8px rgb(0 0 0 / 0.15);
+}
+
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
-
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
@@ -25,16 +178,35 @@ body {
   width: 6px;
   height: 6px;
 }
-
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: rgb(255 255 255 / 0.15);
   border-radius: 9999px;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+select option {
+  background: #202126;
+  color: #f4f4f5;
+}
+
+/* Slow drift/zoom on the background photo */
+@keyframes kenburns {
+  from { transform: scale(1) translate3d(0, 0, 0); }
+  to { transform: scale(1.1) translate3d(-2%, -1.5%, 0); }
+}
+.kenburns {
+  animation: kenburns 40s ease-in-out infinite alternate;
+  will-change: transform;
 }
