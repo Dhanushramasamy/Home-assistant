@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { clearDeviceTimers, recordBrowserTimerResult } from "@/lib/deviceController";
 
 /**
- * POST { deviceId } clears every timer on the ESP32 (GET /timer/clear).
+ * POST { deviceId } cancels every timer on this device's relay (each by id).
  * POST { deviceId, recordOnly: true } only records a clear the browser already did.
  */
 export async function POST(request: Request) {

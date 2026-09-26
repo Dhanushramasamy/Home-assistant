@@ -1,7 +1,7 @@
 "use client";
 
 import { Device, DeviceMode, DeviceStatusResponse, DeviceTimerEntry, DeviceTimerResponse, TimerAction } from "@/types";
-import { parseTimerEntry, parseTimers, reasonFromStatus, timerErrorMessage } from "./timerParse";
+import { parseTimerEntry, parseTimers, powerForRelay, reasonFromStatus, timerErrorMessage } from "./timerParse";
 
 /**
  * Browser-side helpers for ESP32 status and timers. Each call goes through
@@ -72,12 +72,13 @@ export async function fetchDeviceStatus(device: Device, networkMode?: DeviceMode
     // Let the server reconcile the DB with what the browser saw.
     const synced = await postJson<DeviceStatusResponse>("/api/devices/status", { deviceId: device.id, report: r.json });
     if (synced?.success) return synced;
+    const relay = device.relay || 1;
     return {
       success: true,
       deviceId: device.id,
       reachable: true,
-      power: r.json.power === "on" || r.json.power === "off" ? r.json.power : undefined,
-      timers: parseTimers(r.json) ?? [],
+      power: powerForRelay(r.json, relay),
+      timers: (parseTimers(r.json) ?? []).filter((t) => t.relay === relay),
       fetchedAt: new Date().toISOString(),
     };
   }
@@ -93,7 +94,7 @@ export async function requestStartTimer(
   // Only retry from the browser when the server couldn't reach the ESP32 at all.
   if (serverResult && (serverResult.success || serverResult.reachable || !isDirect(device, networkMode))) return serverResult;
 
-  const qs = new URLSearchParams({ action: timer.action, seconds: String(timer.seconds) });
+  const qs = new URLSearchParams({ relay: String(device.relay || 1), action: timer.action, seconds: String(timer.seconds) });
   if (timer.repeat) qs.set("repeat", "true");
   const url = `http://${device.ip}/timer?${qs}`;
   const r = await browserGet(url);
@@ -117,17 +118,21 @@ export async function requestCancelTimer(device: Device, networkMode: DeviceMode
   return { success: true, deviceId: device.id, reachable: true, timers: parseTimers(r.json), targetUrl: url, message: "Timer cancelled." };
 }
 
-/** Clears every timer on the ESP32 (GET /timer/clear). */
+/** Cancels every timer on this device's relay (each by id; other relays keep theirs). */
 export async function requestClearTimers(device: Device, networkMode?: DeviceMode): Promise<DeviceTimerResponse> {
   const serverResult = await postJson<DeviceTimerResponse>("/api/devices/timer/clear", { deviceId: device.id });
   if (serverResult && (serverResult.success || serverResult.reachable || !isDirect(device, networkMode))) return serverResult;
 
-  const url = `http://${device.ip}/timer/clear`;
-  const r = await browserGet(url);
-  if (!r.reached || !r.json || r.status >= 400 || r.json.ok === false) return browserFailure(device, r, url);
+  const listUrl = `http://${device.ip}/timers`;
+  const list = await browserGet(listUrl);
+  if (!list.reached || !list.json || list.status >= 400 || list.json.ok === false) return browserFailure(device, list, listUrl);
 
+  const relay = device.relay || 1;
+  for (const t of (parseTimers(list.json) ?? []).filter((x) => x.relay === relay)) {
+    await browserGet(`http://${device.ip}/timer/cancel?id=${t.id}`);
+  }
   await postJson("/api/devices/timer/clear", { deviceId: device.id, recordOnly: true });
-  return { success: true, deviceId: device.id, reachable: true, timers: [], targetUrl: url, message: "All timers cleared." };
+  return { success: true, deviceId: device.id, reachable: true, timers: [], targetUrl: listUrl, message: "All timers cleared." };
 }
 
 /**

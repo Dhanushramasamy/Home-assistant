@@ -18,6 +18,9 @@ export interface EspStatusEntry {
   timerCount?: number;
   /** Firmware device name, e.g. "ESP200". */
   espDevice?: string;
+  rssi?: number;
+  uptime?: number;
+  ssid?: string;
   syncedAt: number;
 }
 
@@ -157,7 +160,13 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
           </div>
 
           <div className="relative mt-auto flex justify-end">
-            <PowerPill on={isOn} onToggle={toggle} disabled={isActionLoading} label={`${device.name} power`} />
+            <PowerPill
+              on={isOn}
+              onToggle={toggle}
+              disabled={isActionLoading}
+              unavailable={!!espStatus && !espStatus.reachable}
+              label={`${device.name} power`}
+            />
           </div>
         </motion.div>
       </motion.div>

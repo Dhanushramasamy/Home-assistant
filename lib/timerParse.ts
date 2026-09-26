@@ -15,6 +15,7 @@ export function parseTimerEntry(raw: unknown, fallbackId?: number): DeviceTimerE
   return {
     id,
     active: true,
+    relay: typeof t.relay === "number" ? t.relay : 1,
     action: t.action,
     repeat: t.repeat === true,
     seconds: typeof t.seconds === "number" ? t.seconds : 0,
@@ -60,4 +61,20 @@ export function reasonFromStatus(status: number | undefined): "invalid" | "not_f
   if (status === 404) return "not_found";
   if (status === 409) return "limit";
   return "error";
+}
+
+/**
+ * Power of one relay from a /status body. Multi-relay firmware reports
+ * `relays: [{ relay, power }]`; single-relay firmware reports `power`.
+ * Returns undefined when the state can't be determined.
+ */
+export function powerForRelay(json: Record<string, unknown>, relay: number): "on" | "off" | undefined {
+  if (Array.isArray(json.relays)) {
+    const entry = json.relays.find(
+      (r) => r && typeof r === "object" && (r as Record<string, unknown>).relay === relay
+    ) as Record<string, unknown> | undefined;
+    return entry?.power === "on" || entry?.power === "off" ? entry.power : undefined;
+  }
+  if (relay === 1 && (json.power === "on" || json.power === "off")) return json.power;
+  return undefined;
 }

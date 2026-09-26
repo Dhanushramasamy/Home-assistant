@@ -24,12 +24,12 @@ export async function POST(request: Request) {
     // Pi 5 Gateway Router resolves device ID to IP
     const targetIp = device.ip;
     const nextPowerState = action === "toggle" ? (device.powerState === "on" ? "off" : "on") : action;
-    const espUrl = `http://${targetIp}/${nextPowerState}`;
+    const espUrl = `http://${targetIp}/${nextPowerState}?relay=${device.relay || 1}`;
 
     // Forward timer/status calls to the ESP32 and return its JSON as `esp`
     if (action === "esp") {
       const { path, query } = body as { path?: string; query?: Record<string, string> };
-      if (!["status", "timers", "timer", "timer/cancel", "timer/clear"].includes(path ?? "")) {
+      if (!["status", "timers", "timer", "timer/cancel"].includes(path ?? "")) {
         return NextResponse.json({ error: "Unsupported ESP32 path" }, { status: 400 });
       }
       const qs = new URLSearchParams(query || {}).toString();

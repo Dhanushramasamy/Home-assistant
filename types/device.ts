@@ -32,6 +32,8 @@ export const MAX_TIMER_SECONDS = 86400;
 export interface DeviceTimerEntry {
   id: number;
   active: boolean;
+  /** Relay the timer switches (firmware without relays: 1). */
+  relay: number;
   action: TimerAction;
   repeat: boolean;
   seconds: number;
@@ -47,6 +49,7 @@ export interface DeviceStatusResponse {
   timerCount?: number;
   relay?: number;
   ip?: string;
+  ssid?: string;
   espDevice?: string;
   uptime?: number;
   rssi?: number;

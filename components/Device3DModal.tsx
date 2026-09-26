@@ -220,7 +220,13 @@ export const Device3DModal: React.FC<Device3DModalProps> = ({
           </div>
 
           <div className="px-5 pt-5">
-            <PowerPill on={isOn} onToggle={() => onTogglePower(device.id, device.powerState)} size="lg" label="Power" />
+            <PowerPill
+              on={isOn}
+              onToggle={() => onTogglePower(device.id, device.powerState)}
+              unavailable={offline}
+              size="lg"
+              label="Power"
+            />
           </div>
 
           {/* Visual */}
@@ -291,6 +297,17 @@ export const Device3DModal: React.FC<Device3DModalProps> = ({
               <div className="min-w-0">
                 <p className="text-[13px] text-muted">IP Address</p>
                 <p className="truncate font-mono text-[16px]">{device.ip}</p>
+                {espStatus?.reachable && (espStatus.ssid || espStatus.rssi !== undefined || espStatus.uptime !== undefined) && (
+                  <p className="mt-0.5 truncate text-[12px] text-muted">
+                    {[
+                      espStatus.ssid,
+                      espStatus.rssi !== undefined ? `${espStatus.rssi} dBm` : null,
+                      espStatus.uptime !== undefined ? `up ${formatDuration(espStatus.uptime >= 60 ? Math.floor(espStatus.uptime / 60) * 60 : Math.floor(espStatus.uptime))}` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                )}
               </div>
               {onTestConnection && (
                 <motion.button

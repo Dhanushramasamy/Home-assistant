@@ -187,7 +187,7 @@ export default function HomeControlPage() {
     const effectiveMode = networkConfig?.mode === "gateway" || targetDevice.mode === "gateway" ? "gateway" : "direct";
 
     if (effectiveMode === "direct" && typeof window !== "undefined") {
-      fetch(`http://${targetDevice.ip}/${nextState}`, {
+      fetch(`http://${targetDevice.ip}/${nextState}?relay=${targetDevice.relay || 1}`, {
         method: "GET",
         mode: "no-cors",
       }).catch(() => {});
@@ -213,9 +213,10 @@ export default function HomeControlPage() {
     devicesRef.current = devices;
   }, [devices]);
 
-  // Per-device sync schedule: online every 30 s, offline backs off 60 s -> 5 min.
+  // Per-device sync schedule: online every 10 s, offline backs off 60 s -> 5 min.
+  // Relays on the same ESP32 share one /status request on the server.
   const syncPlan = useRef<Record<string, { nextAt: number; failures: number }>>({});
-  const ONLINE_SYNC_MS = 30_000;
+  const ONLINE_SYNC_MS = 10_000;
 
   const refreshStatus = useCallback(
     async (deviceId: string) => {
@@ -236,6 +237,9 @@ export default function HomeControlPage() {
           timers: status.reachable ? status.timers ?? [] : [],
           timerCount: status.reachable ? status.timerCount : undefined,
           espDevice: status.espDevice ?? prev[deviceId]?.espDevice,
+          rssi: status.reachable ? status.rssi : undefined,
+          uptime: status.reachable ? status.uptime : undefined,
+          ssid: status.reachable ? status.ssid : undefined,
           syncedAt: Date.now(),
         },
       }));
@@ -271,7 +275,7 @@ export default function HomeControlPage() {
       }
     };
     const first = setTimeout(tick, 300);
-    const interval = setInterval(tick, 10_000);
+    const interval = setInterval(tick, 5_000);
     return () => {
       clearTimeout(first);
       clearInterval(interval);

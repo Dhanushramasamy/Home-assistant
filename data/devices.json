@@ -1,7 +1,7 @@
 [
   {
     "id": "kitchen-light",
-    "name": "Bedroom Light Airtel",
+    "name": "ESP200 Relay 1",
     "room": "Bedroom",
     "type": "light",
     "mode": "direct",
@@ -9,29 +9,20 @@
     "relay": 1,
     "powerState": "off",
     "connectionState": "connected",
-    "lastSeen": "2026-09-25T15:46:56.319+00:00",
-    "timers": [
-      {
-        "espId": 1,
-        "action": "on",
-        "seconds": 600,
-        "repeat": false,
-        "startedAt": "2026-09-25T15:40:42.224Z",
-        "recordId": "0c632940-4ef2-4153-9cf7-6702d563fecc"
-      }
-    ]
+    "lastSeen": "2026-09-26T13:13:19.63+00:00",
+    "timers": []
   },
   {
-    "id": "bedroom-light-pixel",
-    "name": "Bedroom light Pixel",
+    "id": "home-fan-1",
+    "name": "ESP200 Relay 2",
     "room": "Bedroom",
-    "type": "light",
+    "type": "fan",
     "mode": "direct",
-    "ip": "10.196.10.201",
-    "relay": 1,
+    "ip": "192.168.1.200",
+    "relay": 2,
     "powerState": "off",
-    "connectionState": "offline",
-    "lastSeen": "2026-09-25T15:46:56.319+00:00",
+    "connectionState": "connected",
+    "lastSeen": "2026-09-26T13:13:21.122Z",
     "timers": []
   }
 ]

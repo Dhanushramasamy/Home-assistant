@@ -30,7 +30,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "deviceId and report are required." }, { status: 400 });
     }
     const result = await applyDeviceReport(deviceId, {
-      power: report.power,
       timers: parseTimers(report) ?? [],
       raw: report,
     });
