@@ -26,13 +26,12 @@ async function ensureAdminInDatabase(): Promise<void> {
       .maybeSingle();
 
     if (!data) {
-      await supabase.from("user_PRB_home_assistant").insert([
-        {
-          username: "DhanushRaja",
-          password: "Admin123",
-          role: "admin",
-        },
-      ]);
+      const { error } = await supabase
+        .from("user_PRB_home_assistant")
+        .insert([{ username: "DhanushRaja", password: "Admin123", role: "admin" }]);
+      if (error?.code === "PGRST204") {
+        await supabase.from("user_PRB_home_assistant").insert([{ username: "DhanushRaja", password: "Admin123" }]);
+      }
     }
   } catch (err) {
     console.warn("Supabase admin seeding notice:", err);
@@ -125,20 +124,40 @@ export async function createUserAccount(
   }
 
   try {
-    const { error } = await supabase.from("user_PRB_home_assistant").insert([
-      {
-        username: cleanUsername,
-        password: cleanPassword,
-        role,
-      },
-    ]);
-
-    if (error) {
-      return { success: false, message: error.message };
+    // Usernames are matched case-insensitively at login, so block duplicates here.
+    const { data: existing } = await supabase
+      .from("user_PRB_home_assistant")
+      .select("id")
+      .ilike("username", cleanUsername)
+      .maybeSingle();
+    if (existing) {
+      return { success: false, message: `User '${cleanUsername}' already exists.` };
     }
 
-    return { success: true, message: `Created user '${cleanUsername}' (${role}) in Supabase database.` };
-  } catch (err) {
-    return { success: false, message: (err as Error).message };
+    const { error } = await supabase
+      .from("user_PRB_home_assistant")
+      .insert([{ username: cleanUsername, password: cleanPassword, role }]);
+
+    if (error) {
+      // The users table has no `role` column yet (supabase/add_user_role.sql adds it).
+      if (error.code === "PGRST204" && error.message.includes("role")) {
+        if (role === "admin") {
+          return {
+            success: false,
+            message: "Admin users need the role column. Run supabase/add_user_role.sql in Supabase, then try again.",
+          };
+        }
+        const retry = await supabase
+          .from("user_PRB_home_assistant")
+          .insert([{ username: cleanUsername, password: cleanPassword }]);
+        if (retry.error) return { success: false, message: "Could not create the user. Please try again." };
+        return { success: true, message: `Created user '${cleanUsername}'.` };
+      }
+      return { success: false, message: "Could not create the user. Please try again." };
+    }
+
+    return { success: true, message: `Created user '${cleanUsername}'${role === "admin" ? " (administrator)" : ""}.` };
+  } catch {
+    return { success: false, message: "Could not reach the database. Please try again." };
   }
 }
