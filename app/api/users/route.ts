@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { createUserAccount } from "@/lib/userStore";
-import { listUsersWithAccess } from "@/lib/accessStore";
+import { accessStorageStatus, listUsersWithAccess } from "@/lib/accessStore";
 
 /** GET -> users with their role and granted device ids. Admin-only (proxy.ts). */
 export async function GET() {
   try {
-    return NextResponse.json({ users: await listUsersWithAccess() });
+    const [users, storage] = await Promise.all([listUsersWithAccess(), accessStorageStatus()]);
+    return NextResponse.json({ users, storage });
   } catch {
     return NextResponse.json({ error: "Could not load users." }, { status: 500 });
   }

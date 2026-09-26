@@ -1,8 +1,9 @@
 "use client";
 
 /**
- * Switch feedback: a soft, short "tock" (like a premium wall switch) plus a
- * haptic tap. Made with the Web Audio API, so there is no audio file.
+ * Switch feedback: a clear mechanical click (two-stage "cli-click" for ON, a
+ * single lower click for OFF) plus a haptic tap. Made with the Web Audio API,
+ * so there is no audio file.
  *
  * Haptics:
  * - Android (and other browsers with the Vibration API): a short pulse.
@@ -20,42 +21,74 @@ function audio(): AudioContext | null {
   return ctx;
 }
 
+/** One mechanical click at time `t`: contact tick + bright resonance + small body. */
+function click(ac: AudioContext, out: AudioNode, t: number, pitch: number, level: number) {
+  // 1. Contact tick: ~4 ms of high-passed noise with a very fast decay.
+  const len = Math.floor(ac.sampleRate * 0.004);
+  const buffer = ac.createBuffer(1, len, ac.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 4);
+  const tick = ac.createBufferSource();
+  tick.buffer = buffer;
+  const hp = ac.createBiquadFilter();
+  hp.type = "highpass";
+  hp.frequency.value = 1800;
+  const tickGain = ac.createGain();
+  tickGain.gain.value = 0.9 * level;
+  tick.connect(hp).connect(tickGain).connect(out);
+  tick.start(t);
+
+  // 2. Resonance: a short, bright ring that makes the click clear and "clean".
+  const ring = ac.createOscillator();
+  const ringGain = ac.createGain();
+  ring.type = "sine";
+  ring.frequency.setValueAtTime(pitch, t);
+  ring.frequency.exponentialRampToValueAtTime(pitch * 0.82, t + 0.03);
+  ringGain.gain.setValueAtTime(0.0001, t);
+  ringGain.gain.exponentialRampToValueAtTime(0.32 * level, t + 0.001);
+  ringGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.035);
+  ring.connect(ringGain).connect(out);
+  ring.start(t);
+  ring.stop(t + 0.04);
+
+  // 3. Body: a little low-mid weight so it doesn't sound thin.
+  const body = ac.createOscillator();
+  const bodyGain = ac.createGain();
+  body.type = "triangle";
+  body.frequency.setValueAtTime(pitch / 4, t);
+  body.frequency.exponentialRampToValueAtTime(pitch / 8, t + 0.025);
+  bodyGain.gain.setValueAtTime(0.0001, t);
+  bodyGain.gain.exponentialRampToValueAtTime(0.28 * level, t + 0.002);
+  bodyGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.03);
+  body.connect(bodyGain).connect(out);
+  body.start(t);
+  body.stop(t + 0.035);
+}
+
 function playTock(turningOn: boolean) {
   const ac = audio();
   if (!ac) return;
-  const t = ac.currentTime;
-  const out = ac.createGain();
-  out.gain.value = 0.55; // overall level: present but quiet
-  out.connect(ac.destination);
+  const t = ac.currentTime + 0.005;
 
-  // Low "thock": the body of the switch.
-  const body = ac.createOscillator();
-  const bodyGain = ac.createGain();
-  body.type = "sine";
-  body.frequency.setValueAtTime(turningOn ? 210 : 170, t);
-  body.frequency.exponentialRampToValueAtTime(turningOn ? 120 : 95, t + 0.035);
-  bodyGain.gain.setValueAtTime(0.0001, t);
-  bodyGain.gain.exponentialRampToValueAtTime(0.35, t + 0.002);
-  bodyGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
-  body.connect(bodyGain).connect(out);
-  body.start(t);
-  body.stop(t + 0.06);
+  // Keep it clear and loud enough without clipping on phone speakers.
+  const comp = ac.createDynamicsCompressor();
+  comp.threshold.value = -10;
+  comp.knee.value = 6;
+  comp.ratio.value = 4;
+  comp.attack.value = 0.001;
+  comp.release.value = 0.05;
+  const master = ac.createGain();
+  master.gain.value = 0.9;
+  master.connect(comp).connect(ac.destination);
 
-  // Crisp contact "tick": a few milliseconds of band-passed noise.
-  const len = Math.floor(ac.sampleRate * 0.006);
-  const buffer = ac.createBuffer(1, len, ac.sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
-  const tick = ac.createBufferSource();
-  tick.buffer = buffer;
-  const band = ac.createBiquadFilter();
-  band.type = "bandpass";
-  band.frequency.value = turningOn ? 3400 : 2600;
-  band.Q.value = 1.2;
-  const tickGain = ac.createGain();
-  tickGain.gain.value = 0.22;
-  tick.connect(band).connect(tickGain).connect(out);
-  tick.start(t);
+  if (turningOn) {
+    // ON: press + latch, a crisp two-stage "cli-click".
+    click(ac, master, t, 2600, 0.75);
+    click(ac, master, t + 0.018, 3100, 1);
+  } else {
+    // OFF: a single, slightly lower "clock".
+    click(ac, master, t, 2100, 1);
+  }
 }
 
 let iosSwitchLabel: HTMLLabelElement | null = null;
