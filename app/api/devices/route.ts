@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
 import { getDevices, addDevice } from "@/lib/deviceStore";
+import { allowedDeviceIds } from "@/lib/accessStore";
+import { sessionFrom } from "@/lib/auth/requestSession";
 
-export async function GET() {
+/** GET -> the devices this user may see (admins: all). */
+export async function GET(request: Request) {
   try {
+    const session = sessionFrom(request);
+    if (!session) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
     const devices = await getDevices();
-    return NextResponse.json(devices);
+    const allowed = await allowedDeviceIds(session.username, session.role);
+    return NextResponse.json(allowed === "all" ? devices : devices.filter((d) => allowed.has(d.id)));
   } catch (error) {
     return NextResponse.json(
       { error: "Failed to fetch devices", details: (error as Error).message },

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { applyDeviceReport, getDeviceStatus } from "@/lib/deviceController";
 import { parseTimers } from "@/lib/timerParse";
+import { denyDeviceAccess } from "@/lib/auth/requestSession";
 
 /** GET ?deviceId= reads /status from the ESP32 and syncs the app to it. */
 export async function GET(request: NextRequest) {
@@ -8,6 +9,8 @@ export async function GET(request: NextRequest) {
   if (!deviceId) {
     return NextResponse.json({ error: "deviceId is required." }, { status: 400 });
   }
+  const denied = await denyDeviceAccess(request, deviceId);
+  if (denied) return denied;
   try {
     const result = await getDeviceStatus(deviceId);
     return NextResponse.json(result);
@@ -26,6 +29,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: Request) {
   try {
     const { deviceId, report } = await request.json();
+    const denied = await denyDeviceAccess(request, deviceId);
+    if (denied) return denied;
     if (!deviceId || !report || typeof report !== "object") {
       return NextResponse.json({ error: "deviceId and report are required." }, { status: 400 });
     }

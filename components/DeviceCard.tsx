@@ -28,8 +28,9 @@ interface DeviceCardProps {
   device: Device;
   onTogglePower: (deviceId: string, currentPower: PowerState) => void;
   onTestConnection: (deviceId: string) => void;
-  onEditDevice: (device: Device) => void;
-  onDeleteDevice: (device: Device) => void;
+  /** Admin only; hidden for other users. */
+  onEditDevice?: (device: Device) => void;
+  onDeleteDevice?: (device: Device) => void;
   isActionLoading?: boolean;
   /** Position in the grid, used to stagger the entrance. */
   index?: number;

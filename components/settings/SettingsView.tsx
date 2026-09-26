@@ -9,6 +9,7 @@ import { ControllerSettings } from "./ControllerSettings";
 import { AdvancedSettings } from "./AdvancedSettings";
 import { AnimatePresence, motion } from "motion/react";
 import { AccountSettings } from "./AccountSettings";
+import { UsersSettings } from "./UsersSettings";
 import { easeApple, springs } from "@/lib/deviceTheme";
 
 interface SettingsViewProps {
@@ -31,6 +32,7 @@ interface SettingsViewProps {
 const sections = [
   { id: "account", label: "Account" },
   { id: "general", label: "General" },
+  { id: "users", label: "Users" },
   { id: "network", label: "Network" },
   { id: "devices", label: "Devices" },
   { id: "controller", label: "Controller" },
@@ -99,6 +101,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           )}
 
           {activeSection === "general" && <GeneralSettings currentUserRole={currentUserRole} />}
+
+          {activeSection === "users" && currentUserRole === "admin" && <UsersSettings devices={devices} />}
 
           {activeSection === "network" && (
             <NetworkSettings networkConfig={networkConfig} onSaveNetworkConfig={onSaveNetworkConfig} showToast={showToast} />

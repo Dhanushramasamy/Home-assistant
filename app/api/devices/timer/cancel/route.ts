@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { cancelDeviceTimer, recordBrowserTimerResult } from "@/lib/deviceController";
+import { denyDeviceAccess } from "@/lib/auth/requestSession";
 
 /**
  * POST { deviceId, timerId } cancels one timer by its ESP32 id (GET /timer/cancel?id=).
@@ -8,6 +9,8 @@ import { cancelDeviceTimer, recordBrowserTimerResult } from "@/lib/deviceControl
 export async function POST(request: Request) {
   try {
     const { deviceId, timerId, recordOnly } = await request.json();
+    const denied = await denyDeviceAccess(request, deviceId);
+    if (denied) return denied;
     if (!deviceId || !Number.isInteger(timerId)) {
       return NextResponse.json({ error: "deviceId and an integer timerId are required." }, { status: 400 });
     }

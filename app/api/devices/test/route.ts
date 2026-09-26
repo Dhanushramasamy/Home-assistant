@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { testDeviceReachability } from "@/lib/deviceController";
+import { denyDeviceAccess } from "@/lib/auth/requestSession";
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { deviceId } = body;
+    const denied = await denyDeviceAccess(request, deviceId);
+    if (denied) return denied;
 
     if (!deviceId) {
       return NextResponse.json(

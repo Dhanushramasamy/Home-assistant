@@ -19,6 +19,11 @@ import { Backdrop } from "@/components/ui/Backdrop";
 import { easeApple, springs } from "@/lib/deviceTheme";
 import { Plus, Settings, Search, X, House, User, LogOut } from "lucide-react";
 
+/** How long a just-flipped switch ignores older server data (live sync). */
+function pendingDeadline() {
+  return Date.now() + 5000;
+}
+
 export default function HomeControlPage() {
   const [activeTab, setActiveTab] = useState<string>("All"); // "All" | roomName | "settings"
   const [devices, setDevices] = useState<Device[]>([]);
@@ -167,6 +172,45 @@ export default function HomeControlPage() {
     if (userSession) fetchData();
   }, [fetchData, userSession]);
 
+  // Live sync: re-read devices every 3 s while the app is visible, and right
+  // away when it comes back to the foreground, so a switch flipped on another
+  // phone shows up without a manual refresh.
+  const pendingUntil = useRef<Record<string, number>>({});
+  const syncDevices = useCallback(async () => {
+    try {
+      const res = await fetch("/api/devices", { cache: "no-store" });
+      if (res.status === 401) {
+        setUserSession(null);
+        return;
+      }
+      if (!res.ok) return;
+      const list = (await res.json()) as Device[];
+      setDevices((prev) =>
+        list.map((d) => {
+          const local = prev.find((p) => p.id === d.id);
+          // Keep a switch this phone just flipped until the server has caught up.
+          if (local && (pendingUntil.current[d.id] ?? 0) > Date.now()) return { ...d, powerState: local.powerState };
+          return d;
+        })
+      );
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    if (!userSession) return;
+    const syncIfVisible = () => {
+      if (document.visibilityState === "visible") void syncDevices();
+    };
+    const id = setInterval(syncIfVisible, 3000);
+    document.addEventListener("visibilitychange", syncIfVisible);
+    window.addEventListener("focus", syncIfVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", syncIfVisible);
+      window.removeEventListener("focus", syncIfVisible);
+    };
+  }, [userSession, syncDevices]);
+
   // Unique room list
   const existingRooms = Array.from(new Set(devices.map((d) => d.room))).filter(Boolean);
 
@@ -179,6 +223,7 @@ export default function HomeControlPage() {
     if (!targetDevice) return;
 
     const nextState: PowerState = currentPower === "on" ? "off" : "on";
+    pendingUntil.current[deviceId] = pendingDeadline();
 
     updateDevicesState((prev) =>
       prev.map((d) =>
@@ -715,8 +760,8 @@ export default function HomeControlPage() {
                       device={device}
                       onTogglePower={handleTogglePower}
                       onTestConnection={handleTestConnection}
-                      onEditDevice={(device) => setEditingDevice(device)}
-                      onDeleteDevice={handleDeleteDevice}
+                      onEditDevice={isAdmin ? (device) => setEditingDevice(device) : undefined}
+                      onDeleteDevice={isAdmin ? handleDeleteDevice : undefined}
                       isActionLoading={false}
                       espStatus={espStatus[device.id]}
                       onRefreshStatus={refreshStatus}

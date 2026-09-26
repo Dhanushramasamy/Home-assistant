@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { updateDevice, deleteDevice, getDeviceById } from "@/lib/deviceStore";
+import { denyDeviceAccess } from "@/lib/auth/requestSession";
 
 export async function GET(
   request: Request,
@@ -7,6 +8,8 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
+    const denied = await denyDeviceAccess(request, id);
+    if (denied) return denied;
     const device = await getDeviceById(id);
     if (!device) {
       return NextResponse.json({ error: "Device not found" }, { status: 404 });

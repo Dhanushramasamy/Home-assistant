@@ -1,5 +1,15 @@
 import { NextResponse } from "next/server";
 import { createUserAccount } from "@/lib/userStore";
+import { listUsersWithAccess } from "@/lib/accessStore";
+
+/** GET -> users with their role and granted device ids. Admin-only (proxy.ts). */
+export async function GET() {
+  try {
+    return NextResponse.json({ users: await listUsersWithAccess() });
+  } catch {
+    return NextResponse.json({ error: "Could not load users." }, { status: 500 });
+  }
+}
 
 /** POST { username, password, role } creates a user. Admin-only (enforced in proxy.ts). */
 export async function POST(request: Request) {

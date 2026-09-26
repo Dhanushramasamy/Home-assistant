@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { clearDeviceTimers, recordBrowserTimerResult } from "@/lib/deviceController";
+import { denyDeviceAccess } from "@/lib/auth/requestSession";
 
 /**
  * POST { deviceId } cancels every timer on this device's relay (each by id).
@@ -8,6 +9,8 @@ import { clearDeviceTimers, recordBrowserTimerResult } from "@/lib/deviceControl
 export async function POST(request: Request) {
   try {
     const { deviceId, recordOnly } = await request.json();
+    const denied = await denyDeviceAccess(request, deviceId);
+    if (denied) return denied;
     if (!deviceId) {
       return NextResponse.json({ error: "deviceId is required." }, { status: 400 });
     }

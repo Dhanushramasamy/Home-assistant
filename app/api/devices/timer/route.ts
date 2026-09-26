@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { recordBrowserTimerResult, startDeviceTimer } from "@/lib/deviceController";
 import { MAX_TIMER_SECONDS } from "@/types";
+import { denyDeviceAccess } from "@/lib/auth/requestSession";
 
 /**
  * POST { deviceId, action: "on"|"off", seconds: 1-86400, repeat? }
@@ -11,6 +12,8 @@ import { MAX_TIMER_SECONDS } from "@/types";
 export async function POST(request: Request) {
   try {
     const { deviceId, action, seconds, repeat, recordOnly, espTimerId } = await request.json();
+    const denied = await denyDeviceAccess(request, deviceId);
+    if (denied) return denied;
 
     if (!deviceId || (action !== "on" && action !== "off")) {
       return NextResponse.json({ error: "deviceId and action ('on' or 'off') are required." }, { status: 400 });

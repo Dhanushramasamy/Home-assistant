@@ -10,7 +10,7 @@ import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth/session";
 const OPEN = ["/api/auth/login", "/api/auth/logout", "/api/auth/me"];
 
 function needsAdmin(pathname: string, method: string): boolean {
-  if (pathname === "/api/users") return true;
+  if (pathname === "/api/users" || pathname.startsWith("/api/users/")) return true;
   if (pathname === "/api/devices/reset" || pathname === "/api/devices/clear") return true;
   if (pathname === "/api/network" && method !== "GET") return true;
   if (pathname === "/api/devices" && method === "POST") return true; // add device

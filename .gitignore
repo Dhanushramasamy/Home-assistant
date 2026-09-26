@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local fallback for per-user device access (real data lives in Supabase)
+/data/device-access.json
