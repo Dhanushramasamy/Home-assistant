@@ -28,8 +28,18 @@ export const MAX_ESP_TIMERS = 10;
 /** Longest timer the firmware accepts, in seconds (24 h). */
 export const MAX_TIMER_SECONDS = 86400;
 
+/**
+ * What the ESP32's timer firmware supports:
+ * - "full": timers have an id and an action (ON/OFF later, repeat, cancel one).
+ *   Firmware announces it with `"timerApi": 2` in /status.
+ * - "basic": older firmware; a timer turns the relay ON now and OFF after N s,
+ *   has no id, and can only be cancelled per relay. The app won't create timers.
+ */
+export type TimerMode = "full" | "basic";
+
 /** One running timer, as reported by the ESP32. */
 export interface DeviceTimerEntry {
+  /** ESP32 timer id. Basic firmware has no ids; those get negative placeholders. */
   id: number;
   active: boolean;
   /** Relay the timer switches (firmware without relays: 1). */
@@ -46,6 +56,7 @@ export interface DeviceStatusResponse {
   reachable: boolean;
   power?: PowerState;
   timers?: DeviceTimerEntry[];
+  timerMode?: TimerMode;
   timerCount?: number;
   relay?: number;
   ip?: string;
@@ -68,7 +79,7 @@ export interface DeviceTimerResponse {
   /** Timers still running on the device after the call, when known */
   timers?: DeviceTimerEntry[];
   /** Why it failed, for the UI: offline | invalid | not_found | limit | error */
-  reason?: "offline" | "invalid" | "not_found" | "limit" | "error";
+  reason?: "offline" | "invalid" | "not_found" | "limit" | "unsupported" | "error";
   targetUrl: string;
   message: string;
 }

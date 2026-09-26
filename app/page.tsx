@@ -286,6 +286,7 @@ export default function HomeControlPage() {
           timers: status.reachable ? status.timers ?? [] : [],
           timerCount: status.reachable ? status.timerCount : undefined,
           espDevice: status.espDevice ?? prev[deviceId]?.espDevice,
+          timerMode: status.reachable ? status.timerMode : prev[deviceId]?.timerMode,
           rssi: status.reachable ? status.rssi : undefined,
           uptime: status.reachable ? status.uptime : undefined,
           ssid: status.reachable ? status.ssid : undefined,

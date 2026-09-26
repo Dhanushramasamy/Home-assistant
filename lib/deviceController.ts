@@ -1,5 +1,5 @@
 import { getDeviceById, updateDevice, addTimerRecord, closeTimerRecords, reconcileTimerRecords } from "./deviceStore";
-import { parseTimerEntry, parseTimers, powerForRelay, reasonFromStatus, timerErrorMessage } from "./timerParse";
+import { parseTimerEntry, parseTimers, powerForRelay, reasonFromStatus, timerErrorMessage, timerModeOf } from "./timerParse";
 import { getNetworkConfig } from "./networkStore";
 import {
   Device,
@@ -452,11 +452,13 @@ export async function applyDeviceReport(
   const relay = device.relay || 1;
   const power: PowerState | undefined = report.raw ? powerForRelay(report.raw, relay) : undefined;
   const timers = report.timers.filter((t) => t.relay === relay);
+  const timerMode = timerModeOf(report.raw ?? null);
   if ((power && power !== device.powerState) || device.connectionState !== "connected") {
     await updateDevice(device.id, { ...(power ? { powerState: power } : {}), connectionState: "connected" });
   }
 
-  await reconcileTimerRecords(device.id, timers);
+  // Basic firmware has no timer ids, so records can't be matched; leave them.
+  if (timerMode === "full") await reconcileTimerRecords(device.id, timers);
   const saved = (await getDeviceById(device.id))?.timers ?? [];
   const raw = report.raw ?? {};
 
@@ -466,6 +468,7 @@ export async function applyDeviceReport(
     reachable: true,
     power,
     timers,
+    timerMode,
     timerCount: timers.length,
     relay,
     ip: typeof raw.ip === "string" ? raw.ip : undefined,
@@ -491,6 +494,25 @@ export async function startDeviceTimer(
   }
 
   const networkConfig = await getNetworkConfig();
+
+  // Basic firmware ignores `action` and switches the relay ON immediately, so
+  // only create timers on firmware that supports them properly.
+  const status = await espRequest(device, networkConfig, "status");
+  if (!status.ok || !status.json) {
+    const reason = status.reached ? reasonFromStatus(status.status) : "offline";
+    return { success: false, deviceId, reachable: status.reached, reason, targetUrl: status.targetUrl, message: timerErrorMessage(reason, device.name) };
+  }
+  if (timerModeOf(status.json) !== "full") {
+    return {
+      success: false,
+      deviceId,
+      reachable: true,
+      reason: "unsupported",
+      targetUrl: status.targetUrl,
+      message: timerErrorMessage("unsupported", device.name),
+    };
+  }
+
   const query: Record<string, string> = { relay: String(device.relay || 1), action, seconds: String(seconds) };
   if (repeat) query.repeat = "true";
   const res = await espRequest(device, networkConfig, "timer", query);
@@ -554,13 +576,26 @@ export async function clearDeviceTimers(deviceId: string): Promise<DeviceTimerRe
   }
 
   const networkConfig = await getNetworkConfig();
-  const list = await espRequestUncached(device, networkConfig, "timers");
+  const list = await espRequestUncached(device, networkConfig, "status");
   if (!list.ok) {
     const reason = list.reached ? reasonFromStatus(list.status) : "offline";
     return { success: false, deviceId, reachable: list.reached, reason, targetUrl: list.targetUrl, message: timerErrorMessage(reason, device.name) };
   }
 
   const relay = device.relay || 1;
+
+  // Basic firmware: timers have no ids; cancel them per relay. (Never use
+  // /timers/clear: it wipes every relay's timers.)
+  if (timerModeOf(list.json) === "basic") {
+    const res = await espRequestUncached(device, networkConfig, "timer/cancel", { relay: String(relay) });
+    if (!res.ok) {
+      const reason = res.reached ? reasonFromStatus(res.status) : "offline";
+      return { success: false, deviceId, reachable: res.reached, reason, targetUrl: res.targetUrl, message: timerErrorMessage(reason, device.name) };
+    }
+    await closeTimerRecords(device.id, "all", "cancelled");
+    return { success: true, deviceId, reachable: true, timers: [], targetUrl: res.targetUrl, message: `Timers cancelled on ${device.name}.` };
+  }
+
   const mine = (parseTimers(list.json) ?? []).filter((t) => t.relay === relay);
   const cancelled: number[] = [];
   for (const t of mine) {

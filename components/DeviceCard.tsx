@@ -18,6 +18,8 @@ export interface EspStatusEntry {
   timerCount?: number;
   /** Firmware device name, e.g. "ESP200". */
   espDevice?: string;
+  /** Timer features of the firmware ("basic" = can't create timers safely). */
+  timerMode?: "full" | "basic";
   rssi?: number;
   uptime?: number;
   ssid?: string;

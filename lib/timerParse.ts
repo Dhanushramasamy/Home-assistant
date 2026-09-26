@@ -1,4 +1,4 @@
-import { DeviceTimerEntry } from "@/types";
+import { DeviceTimerEntry, TimerMode } from "@/types";
 
 /**
  * Parsing for ESP32 timer JSON, shared by the server and the browser.
@@ -11,23 +11,30 @@ export function parseTimerEntry(raw: unknown, fallbackId?: number): DeviceTimerE
   const t = raw as Record<string, unknown>;
   if (t.active === false) return null;
   const id = typeof t.id === "number" ? t.id : fallbackId;
-  if (id === undefined || (t.action !== "on" && t.action !== "off")) return null;
+  if (id === undefined) return null;
+  // Basic firmware has no action: its timer ends by switching the relay OFF.
+  const action = t.action === "on" || t.action === "off" ? t.action : "off";
   return {
     id,
     active: true,
     relay: typeof t.relay === "number" ? t.relay : 1,
-    action: t.action,
+    action,
     repeat: t.repeat === true,
     seconds: typeof t.seconds === "number" ? t.seconds : 0,
     remaining: typeof t.remaining === "number" ? Math.max(0, t.remaining) : 0,
   };
 }
 
-/** Active timers from a /status or /timers body; undefined if the body has none. */
+/**
+ * Active timers from a /status (or /timers) body; undefined if it has none.
+ * Timers without an id (basic firmware) get placeholder ids -1, -2, ...
+ */
 export function parseTimers(json: Record<string, unknown> | null): DeviceTimerEntry[] | undefined {
   if (!json) return undefined;
   if (Array.isArray(json.timers)) {
-    return json.timers.map((t) => parseTimerEntry(t)).filter((t): t is DeviceTimerEntry => t !== null);
+    return json.timers
+      .map((t, i) => parseTimerEntry(t, -(i + 1)))
+      .filter((t): t is DeviceTimerEntry => t !== null);
   }
   if (json.timer && typeof json.timer === "object" && !("id" in (json.timer as object))) {
     const single = parseTimerEntry(json.timer, 0);
@@ -36,9 +43,26 @@ export function parseTimers(json: Record<string, unknown> | null): DeviceTimerEn
   return undefined;
 }
 
+/**
+ * Which timer features the firmware has. "full" when it says `timerApi >= 2`,
+ * or when its timers carry both an id and an action (earlier multi-timer builds).
+ */
+export function timerModeOf(json: Record<string, unknown> | null): TimerMode {
+  if (!json) return "basic";
+  if (typeof json.timerApi === "number" && json.timerApi >= 2) return "full";
+  if (Array.isArray(json.timers)) {
+    return json.timers.some(
+      (t) => t && typeof t === "object" && typeof (t as Record<string, unknown>).id === "number" && typeof (t as Record<string, unknown>).action === "string"
+    )
+      ? "full"
+      : "basic";
+  }
+  return "basic";
+}
+
 /** Human-readable text for an ESP32 timer failure. */
 export function timerErrorMessage(
-  reason: "offline" | "invalid" | "not_found" | "limit" | "error" | undefined,
+  reason: "offline" | "invalid" | "not_found" | "limit" | "unsupported" | "error" | undefined,
   deviceName: string
 ): string {
   switch (reason) {
@@ -48,6 +72,8 @@ export function timerErrorMessage(
       return "Maximum of 10 timers are already active on this device.";
     case "not_found":
       return "That timer is no longer running on the device.";
+    case "unsupported":
+      return "This ESP32's firmware can't run this timer yet. Update the firmware to use timers.";
     case "invalid":
       return "Timer settings were rejected. Use 1 second to 24 hours.";
     default:

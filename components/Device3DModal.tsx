@@ -94,6 +94,9 @@ export const Device3DModal: React.FC<Device3DModalProps> = ({
     .map((t) => ({ t, left: remainingNow(t, espStatus?.syncedAt ?? 0, now) }))
     .sort((a, b) => a.left - b.left);
   const slotsFull = timers.length >= MAX_ESP_TIMERS;
+  // Older firmware: timers have no ids, can only be cancelled per relay, and
+  // creating one would switch the relay ON right away, so the form is hidden.
+  const basicTimers = espStatus?.reachable === true && espStatus.timerMode === "basic";
   const offline = !!espStatus && !espStatus.reachable;
   const savedTimers = device?.timers ?? [];
 
@@ -358,7 +361,8 @@ export const Device3DModal: React.FC<Device3DModalProps> = ({
                         </span>
                         <div className="min-w-0">
                           <p className="text-[13px] text-muted">
-                            Timer #{t.id} · <span className="text-ink">Turn {t.action.toUpperCase()}</span>
+                            {t.id >= 0 ? `Timer #${t.id} · ` : "Timer · "}
+                            <span className="text-ink">Turn {t.action.toUpperCase()}</span>
                           </p>
                           <p className="mt-0.5 text-[22px] font-medium leading-none tabular-nums text-accent" aria-label="Remaining">
                             {formatCountdown(left)}
@@ -368,6 +372,7 @@ export const Device3DModal: React.FC<Device3DModalProps> = ({
                           </p>
                         </div>
                       </div>
+                      {!basicTimers && (
                       <button
                         onClick={() => cancelTimer(t.id)}
                         disabled={cancelling !== null}
@@ -376,6 +381,7 @@ export const Device3DModal: React.FC<Device3DModalProps> = ({
                       >
                         {cancelling === t.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
                       </button>
+                      )}
                     </motion.div>
                   ))}
                 </AnimatePresence>
@@ -393,22 +399,30 @@ export const Device3DModal: React.FC<Device3DModalProps> = ({
                   </div>
                 )}
 
-                {running.length > 1 && onClearTimers && (
+                {(running.length > 1 || (basicTimers && running.length > 0)) && onClearTimers && (
                   <button
                     onClick={clearTimers}
                     disabled={cancelling !== null}
                     className="text-[13px] text-danger disabled:opacity-40"
                   >
-                    {cancelling === "all" ? "Cancelling…" : "Cancel All Timers"}
+                    {cancelling === "all" ? "Cancelling…" : basicTimers ? "Cancel Timers on This Relay" : "Cancel All Timers"}
                   </button>
                 )}
 
                 {running.length > 0 && <div className="h-px bg-line" />}
 
-                {/* New timer */}
+                {/* New timer (only on firmware that supports it) */}
+                {basicTimers ? (
+                  <div className="rounded-[20px] border border-dashed border-white/10 px-4 py-3 text-[13px] leading-relaxed text-muted">
+                    New timers need a firmware update on {espStatus?.espDevice ?? device.name}. Its current firmware
+                    would switch the relay ON straight away, so the app won&apos;t create timers until it&apos;s updated.
+                    Running timers still show here.
+                  </div>
+                ) : (
+                <>
                     <p className="text-[13px] text-muted">
                       {slotsFull
-                        ? "All timer slots are in use. Cancel one to add another."
+                        ? `Maximum of ${MAX_ESP_TIMERS} timers are already active on this device.`
                         : !timerValid
                           ? "Duration must be between 1 second and 24 hours."
                           : timerMode === "at"
@@ -523,6 +537,8 @@ export const Device3DModal: React.FC<Device3DModalProps> = ({
                   <Button onClick={startTimer} disabled={busy || !timerValid || slotsFull || offline} className="w-full py-3 text-[15px]">
                     {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : running.length > 0 ? "Add Timer" : "Start Timer"}
                   </Button>
+                </>
+                )}
               </motion.div>
             )}
           </div>
