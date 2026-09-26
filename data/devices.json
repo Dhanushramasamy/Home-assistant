@@ -9,20 +9,20 @@
     "relay": 1,
     "powerState": "on",
     "connectionState": "connected",
-    "lastSeen": "2026-09-26T14:46:47.697Z",
+    "lastSeen": "2026-09-26T15:33:05.829Z",
     "timers": []
   },
   {
     "id": "home-fan-1",
-    "name": "ESP200 Relay 2",
+    "name": "Fan",
     "room": "Bedroom",
     "type": "fan",
     "mode": "direct",
     "ip": "192.168.1.200",
     "relay": 2,
-    "powerState": "off",
-    "connectionState": "connected",
-    "lastSeen": "2026-09-26T14:46:46.975+00:00",
+    "powerState": "on",
+    "connectionState": "offline",
+    "lastSeen": "2026-09-26T15:32:51.028+00:00",
     "timers": []
   }
 ]

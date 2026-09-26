@@ -1,142 +1,82 @@
 import { supabase } from "./supabaseClient";
+import { hashPassword, isPasswordHash, verifyPassword } from "./auth/password";
+
+// Server-only: used by the /api/auth and /api/users routes. The browser never
+// reads the users table or sees a password (plain or hashed).
+
+const USER_TABLE = "user_PRB_home_assistant";
 
 export interface UserAccount {
   id?: string;
   username: string;
-  password?: string;
   role: "admin" | "user";
   created_at?: string;
 }
 
-export const ADMIN_USER: UserAccount = {
-  username: "DhanushRaja",
-  password: "Admin123",
-  role: "admin",
-};
+type Role = "admin" | "user";
 
-/**
- * Ensures Admin DhanushRaja account exists inside Supabase DB table user_PRB_home_assistant
- */
-async function ensureAdminInDatabase(): Promise<void> {
-  try {
-    const { data } = await supabase
-      .from("user_PRB_home_assistant")
-      .select("*")
-      .ilike("username", "DhanushRaja")
-      .maybeSingle();
-
-    if (!data) {
-      const { error } = await supabase
-        .from("user_PRB_home_assistant")
-        .insert([{ username: "DhanushRaja", password: "Admin123", role: "admin" }]);
-      if (error?.code === "PGRST204") {
-        await supabase.from("user_PRB_home_assistant").insert([{ username: "DhanushRaja", password: "Admin123" }]);
-      }
-    }
-  } catch (err) {
-    console.warn("Supabase admin seeding notice:", err);
-  }
+function roleOf(row: { username: string; role?: unknown }): Role {
+  if (row.role === "admin" || row.role === "user") return row.role;
+  // Before supabase/add_user_role.sql adds the column, DhanushRaja is the admin.
+  return row.username.toLowerCase() === "dhanushraja" ? "admin" : "user";
 }
 
 export async function loginUser(
   usernameInput: string,
   passwordInput: string
-): Promise<{ success: boolean; username: string; role: "admin" | "user"; message: string }> {
+): Promise<{ success: boolean; username: string; role: Role; message: string }> {
   const cleanUsername = usernameInput.trim();
   const cleanPassword = passwordInput.trim();
+  const fail = (message: string) => ({ success: false, username: "", role: "user" as Role, message });
 
-  if (!cleanUsername || !cleanPassword) {
-    return {
-      success: false,
-      username: "",
-      role: "user",
-      message: "Please enter both username and password.",
-    };
-  }
+  if (!cleanUsername || !cleanPassword) return fail("Please enter both username and password.");
 
-  // Ensure admin user is seeded in Supabase DB table
-  await ensureAdminInDatabase();
+  const { data: row, error } = await supabase
+    .from(USER_TABLE)
+    .select("*")
+    .ilike("username", cleanUsername)
+    .maybeSingle();
 
-  // 1. Query Supabase database table user_PRB_home_assistant directly
-  try {
-    const { data: dbUser, error } = await supabase
-      .from("user_PRB_home_assistant")
-      .select("*")
-      .ilike("username", cleanUsername)
-      .maybeSingle();
+  if (error) return fail("Sign-in is unavailable right now. Please try again.");
+  if (!row || typeof row.password !== "string") return fail("Invalid username or password.");
 
-    if (!error && dbUser) {
-      if (dbUser.password === cleanPassword) {
-        const userRole =
-          dbUser.role === "admin" || cleanUsername.toLowerCase() === "dhanushraja"
-            ? "admin"
-            : "user";
-        return {
-          success: true,
-          username: dbUser.username,
-          role: userRole,
-          message: `Welcome, ${dbUser.username}!`,
-        };
-      } else {
-        return {
-          success: false,
-          username: cleanUsername,
-          role: "user",
-          message: "Incorrect password.",
-        };
-      }
+  let ok: boolean;
+  if (isPasswordHash(row.password)) {
+    ok = await verifyPassword(cleanPassword, row.password);
+  } else {
+    // Old plain-text password: compare once, then replace it with a hash.
+    ok = row.password === cleanPassword;
+    if (ok) {
+      await supabase.from(USER_TABLE).update({ password: await hashPassword(cleanPassword) }).eq("id", row.id);
     }
-  } catch (err) {
-    console.warn("Supabase DB auth query error:", err);
   }
+  if (!ok) return fail("Invalid username or password.");
 
-  // 2. Fallback check for DhanushRaja / Admin123 if DB is temporarily unreachable
-  if (
-    cleanUsername.toLowerCase() === "dhanushraja" &&
-    cleanPassword === "Admin123"
-  ) {
-    return {
-      success: true,
-      username: "DhanushRaja",
-      role: "admin",
-      message: "Welcome back!",
-    };
-  }
-
-  return {
-    success: false,
-    username: cleanUsername,
-    role: "user",
-    message: "Invalid credentials.",
-  };
+  return { success: true, username: row.username, role: roleOf(row), message: `Welcome, ${row.username}!` };
 }
 
 export async function createUserAccount(
   usernameInput: string,
   passwordInput: string,
-  role: "admin" | "user" = "user"
+  role: Role = "user"
 ): Promise<{ success: boolean; message: string }> {
   const cleanUsername = usernameInput.trim();
   const cleanPassword = passwordInput.trim();
 
-  if (!cleanUsername || !cleanPassword) {
-    return { success: false, message: "Username and password required." };
-  }
+  if (!cleanUsername || !cleanPassword) return { success: false, message: "Username and password required." };
+  if (cleanPassword.length < 6) return { success: false, message: "Password must be at least 6 characters." };
 
   try {
     // Usernames are matched case-insensitively at login, so block duplicates here.
     const { data: existing } = await supabase
-      .from("user_PRB_home_assistant")
+      .from(USER_TABLE)
       .select("id")
       .ilike("username", cleanUsername)
       .maybeSingle();
-    if (existing) {
-      return { success: false, message: `User '${cleanUsername}' already exists.` };
-    }
+    if (existing) return { success: false, message: `User '${cleanUsername}' already exists.` };
 
-    const { error } = await supabase
-      .from("user_PRB_home_assistant")
-      .insert([{ username: cleanUsername, password: cleanPassword, role }]);
+    const password = await hashPassword(cleanPassword);
+    const { error } = await supabase.from(USER_TABLE).insert([{ username: cleanUsername, password, role }]);
 
     if (error) {
       // The users table has no `role` column yet (supabase/add_user_role.sql adds it).
@@ -147,9 +87,7 @@ export async function createUserAccount(
             message: "Admin users need the role column. Run supabase/add_user_role.sql in Supabase, then try again.",
           };
         }
-        const retry = await supabase
-          .from("user_PRB_home_assistant")
-          .insert([{ username: cleanUsername, password: cleanPassword }]);
+        const retry = await supabase.from(USER_TABLE).insert([{ username: cleanUsername, password }]);
         if (retry.error) return { success: false, message: "Could not create the user. Please try again." };
         return { success: true, message: `Created user '${cleanUsername}'.` };
       }
@@ -160,4 +98,23 @@ export async function createUserAccount(
   } catch {
     return { success: false, message: "Could not reach the database. Please try again." };
   }
+}
+
+/** Changes a user's own password after checking the current one. */
+export async function changePassword(
+  username: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<{ success: boolean; message: string }> {
+  if (newPassword.trim().length < 6) return { success: false, message: "New password must be at least 6 characters." };
+
+  const check = await loginUser(username, currentPassword);
+  if (!check.success) return { success: false, message: "Current password is incorrect." };
+
+  const { error } = await supabase
+    .from(USER_TABLE)
+    .update({ password: await hashPassword(newPassword.trim()) })
+    .ilike("username", username);
+  if (error) return { success: false, message: "Could not change the password. Please try again." };
+  return { success: true, message: "Password changed." };
 }

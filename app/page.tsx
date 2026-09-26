@@ -27,39 +27,37 @@ export default function HomeControlPage() {
   const [showSearch, setShowSearch] = useState<boolean>(false);
 
   // User Auth Session State
+  // Session comes from the signed httpOnly cookie, checked by the server.
   const [userSession, setUserSession] = useState<{ username: string; role: "admin" | "user" } | null>(null);
+  const [sessionChecked, setSessionChecked] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [showAccount, setShowAccount] = useState(false);
 
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const savedUser = localStorage.getItem("home_control_user");
-      if (savedUser) {
-        try {
-          setUserSession(JSON.parse(savedUser));
-        } catch {
-          setUserSession(null);
-        }
-      } else {
-        setUserSession(null);
-      }
-    }
+    // Old sessions were only a localStorage entry anyone could edit; drop it.
+    try {
+      localStorage.removeItem("home_control_user");
+    } catch {}
+    fetch("/api/auth/me", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((me) => setUserSession(me?.authenticated ? { username: me.username, role: me.role } : null))
+      .catch(() => setUserSession(null))
+      .finally(() => setSessionChecked(true));
   }, []);
 
   const handleLoginSuccess = (username: string, role: "admin" | "user") => {
-    const session = { username, role };
-    setUserSession(session);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("home_control_user", JSON.stringify(session));
-    }
+    setUserSession({ username, role });
   };
 
   const handleLogout = () => {
+    fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
     setUserSession(null);
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("home_control_user");
-    }
+    setDevices([]);
+    try {
+      localStorage.removeItem("home_control_devices");
+      localStorage.removeItem("home_control_network");
+    } catch {}
     setActiveTab("All");
   };
 
@@ -125,6 +123,12 @@ export default function HomeControlPage() {
         fetch("/api/network"),
       ]);
 
+      // Session expired or signed out elsewhere: back to the login screen.
+      if (devicesRes.status === 401) {
+        setUserSession(null);
+        return;
+      }
+
       if (devicesRes.ok) {
         const devicesData = await devicesRes.json();
         if (localDevicesStr && JSON.parse(localDevicesStr).length > 0 && devicesData.length === 0) {
@@ -160,8 +164,8 @@ export default function HomeControlPage() {
   }, []);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (userSession) fetchData();
+  }, [fetchData, userSession]);
 
   // Unique room list
   const existingRooms = Array.from(new Set(devices.map((d) => d.room))).filter(Boolean);
@@ -447,6 +451,11 @@ export default function HomeControlPage() {
 
     return matchesTab && matchesSearch;
   });
+
+  // Wait for the server to confirm the session before showing anything.
+  if (!sessionChecked) {
+    return <Backdrop />;
+  }
 
   if (!userSession) {
     return (

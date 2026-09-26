@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { loginUser } from "@/lib/userStore";
+import { signIn } from "@/lib/authClient";
 import { ModalShell } from "./ui/ModalShell";
 import { Button } from "./ui/Button";
 
@@ -27,7 +27,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     setIsLoading(true);
 
     try {
-      const result = await loginUser(username, password);
+      const result = await signIn(username, password);
       if (result.success) {
         onLoginSuccess(result.username, result.role);
         onClose();

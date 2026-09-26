@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { AnimatePresence, motion, useAnimationControls } from "motion/react";
-import { loginUser } from "@/lib/userStore";
+import { signIn } from "@/lib/authClient";
 import { ArrowRight, House, Loader2 } from "lucide-react";
 import { easeApple } from "@/lib/deviceTheme";
 import { Backdrop } from "./ui/Backdrop";
@@ -29,7 +29,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     setIsLoading(true);
 
     try {
-      const result = await loginUser(username, password);
+      const result = await signIn(username, password);
       if (result.success) {
         onLoginSuccess(result.username, result.role);
       } else {
