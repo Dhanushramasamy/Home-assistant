@@ -4,13 +4,15 @@ import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth/session";
 /**
  * Guards every API route with the signed session cookie.
  * - /api/auth/login, /logout, /me are open (they handle sign-in themselves).
+ * - /api/cron/keepalive is open; it checks Vercel's CRON_SECRET itself.
  * - Everything else needs a signed-in user.
  * - Changing devices, network settings, resets and users needs an admin.
  */
-const OPEN = ["/api/auth/login", "/api/auth/logout", "/api/auth/me"];
+const OPEN = ["/api/auth/login", "/api/auth/logout", "/api/auth/me", "/api/cron/keepalive"];
 
 function needsAdmin(pathname: string, method: string): boolean {
   if (pathname === "/api/users" || pathname.startsWith("/api/users/")) return true;
+  if (pathname === "/api/boards") return true;
   if (pathname === "/api/devices/reset" || pathname === "/api/devices/clear") return true;
   if (pathname === "/api/network" && method !== "GET") return true;
   if (pathname === "/api/devices" && method === "POST") return true; // add device

@@ -92,6 +92,8 @@ export interface Device {
   mode: DeviceMode;
   ip: string;
   relay: number;
+  /** Cloud board this relay belongs to (esp_board_prb_home_assistant). Empty = direct IP only. */
+  boardId?: string | null;
   icon?: string;
   powerState: PowerState;
   connectionState: ConnectionState;
@@ -120,7 +122,7 @@ export interface DeviceControlResponse {
   deviceId: string;
   powerState: PowerState;
   connectionState: ConnectionState;
-  modeUsed: DeviceMode;
+  modeUsed: DeviceMode | "cloud";
   targetUrl: string;
   message: string;
   timestamp: string;
@@ -132,13 +134,28 @@ export interface TestConnectionResponse {
   deviceId: string;
   deviceName: string;
   ip: string;
-  mode: DeviceMode;
+  mode: DeviceMode | "cloud";
   reachable: boolean;
   responseTimeMs?: number;
   message: string;
   targetUrl: string;
   details?: string;
   simulated?: boolean;
+}
+
+/** An ESP32 board in cloud mode, as shown in Settings → Network. */
+export interface CloudBoard {
+  boardId: string;
+  name: string | null;
+  /** Checked in within BOARD_ONLINE_MS. */
+  online: boolean;
+  /** Has its own sign-in (auth user) linked. */
+  linked: boolean;
+  ip: string | null;
+  ssid: string | null;
+  rssi: number | null;
+  lastSeen: string | null;
+  desired: Record<string, string>;
 }
 
 export interface ToastMessage {

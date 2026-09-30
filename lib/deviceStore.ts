@@ -96,6 +96,8 @@ export async function getDevices(username: string = "default_user"): Promise<Dev
         mode: d.mode || "direct",
         ip: d.ip,
         relay: d.relay || 1,
+        // Left out until the column exists, so saves don't send it.
+        ...("board_id" in d ? { boardId: d.board_id ?? null } : {}),
         powerState: d.power_state || "off",
         connectionState: d.connection_state || "connected",
         lastSeen: d.updated_at || new Date().toISOString(),
@@ -144,6 +146,8 @@ export async function saveDevices(devices: Device[], username: string = "default
       mode: d.mode,
       ip: d.ip,
       relay: d.relay,
+      // Only sent once the column exists (supabase/add_cloud_boards.sql).
+      ...(d.boardId !== undefined ? { board_id: d.boardId || null } : {}),
       power_state: d.powerState,
       connection_state: d.connectionState,
       updated_at: new Date().toISOString(),

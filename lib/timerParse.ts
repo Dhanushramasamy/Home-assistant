@@ -91,7 +91,7 @@ export function reasonFromStatus(status: number | undefined): "invalid" | "not_f
 
 /**
  * Power of one relay from a /status body. Multi-relay firmware reports
- * `relays: [{ relay, power }]`; single-relay firmware reports `power`.
+ * `relays: [{ relay, power }]`; others report `relayN: true/false` or `power`.
  * Returns undefined when the state can't be determined.
  */
 export function powerForRelay(json: Record<string, unknown>, relay: number): "on" | "off" | undefined {
@@ -101,6 +101,9 @@ export function powerForRelay(json: Record<string, unknown>, relay: number): "on
     ) as Record<string, unknown> | undefined;
     return entry?.power === "on" || entry?.power === "off" ? entry.power : undefined;
   }
+  // ESP201 firmware: "relay1": true
+  const flag = json[`relay${relay}`];
+  if (typeof flag === "boolean") return flag ? "on" : "off";
   if (relay === 1 && (json.power === "on" || json.power === "off")) return json.power;
   return undefined;
 }

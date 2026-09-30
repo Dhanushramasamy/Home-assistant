@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Device, NetworkConfig, PowerState, ToastMessage, TestConnectionResponse, TimerAction } from "@/types";
+import { Device, DeviceControlResponse, NetworkConfig, PowerState, ToastMessage, TestConnectionResponse, TimerAction } from "@/types";
 import { fetchDeviceStatus, requestCancelTimer, requestClearTimers, requestStartTimer } from "@/lib/timerClient";
 import { useBackClose } from "@/lib/useBackClose";
 import type { EspStatusEntry } from "@/components/DeviceCard";
@@ -235,7 +235,8 @@ export default function HomeControlPage() {
 
     const effectiveMode = networkConfig?.mode === "gateway" || targetDevice.mode === "gateway" ? "gateway" : "direct";
 
-    if (effectiveMode === "direct" && typeof window !== "undefined") {
+    // Cloud devices are switched through their board's row in Supabase only.
+    if (effectiveMode === "direct" && !targetDevice.boardId && typeof window !== "undefined") {
       fetch(`http://${targetDevice.ip}/${nextState}?relay=${targetDevice.relay || 1}`, {
         method: "GET",
         mode: "no-cors",
@@ -247,6 +248,13 @@ export default function HomeControlPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ deviceId, action: nextState }),
     })
+      .then(async (res) => {
+        const result = (await res.json().catch(() => null)) as DeviceControlResponse | null;
+        if (result && result.success === false && result.modeUsed === "cloud") {
+          pendingUntil.current[deviceId] = 0;
+          showToast("error", `${targetDevice.name} didn't switch`, result.message);
+        }
+      })
       .catch(() => {})
       // Re-read the ESP32 so power + timers reflect what it actually did.
       // Manual ON/OFF never cancels timers.
@@ -397,6 +405,7 @@ export default function HomeControlPage() {
     mode: Device["mode"];
     ip: string;
     relay: number;
+    boardId?: string | null;
   }) => {
     try {
       const res = await fetch("/api/devices", {

@@ -8,7 +8,7 @@ import {
   validateIpAgainstSubnet,
 } from "@/lib/networkUtils";
 import { ModalShell } from "@/components/ui/ModalShell";
-import { SheetHeader, FormGroup, FormRow, TypePicker, ModeSegment, IpInput, rowInput, rowSelect } from "./DeviceFormParts";
+import { SheetHeader, FormGroup, FormRow, TypePicker, ModeSegment, IpInput, BoardField, cleanBoardId, rowInput, rowSelect } from "./DeviceFormParts";
 
 interface EditDeviceModalProps {
   isOpen: boolean;
@@ -41,6 +41,7 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
     "200",
   ]);
   const [relay, setRelay] = useState(1);
+  const [boardId, setBoardId] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -51,6 +52,7 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
       setMode(device.mode);
       setOctets(parseIPv4Octets(device.ip));
       setRelay(device.relay || 1);
+      setBoardId(device.boardId ?? "");
     }
   }, [device, isOpen]);
 
@@ -78,6 +80,7 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
         mode,
         ip: currentIp,
         relay,
+        boardId: cleanBoardId(boardId),
       });
       onClose();
     } catch (err) {
@@ -138,6 +141,8 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
               <IpInput octets={octets} onChange={handleOctetChange} />
             </FormRow>
           </FormGroup>
+
+          <BoardField value={boardId} onChange={setBoardId} />
         </div>
       </form>
     </ModalShell>

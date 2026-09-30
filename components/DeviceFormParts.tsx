@@ -47,6 +47,39 @@ export const FormRow: React.FC<{ label: string; children: React.ReactNode }> = (
   </label>
 );
 
+/** Board ids are lower-case letters, digits and dashes (e.g. "esp201"). Empty = none. */
+export function cleanBoardId(value: string): string | null {
+  const id = value.trim().toLowerCase().replace(/[^a-z0-9-]/g, "");
+  return id || null;
+}
+
+/** Cloud board this relay belongs to. With one, the app switches it through Supabase from any network. */
+export const BoardField: React.FC<{ value: string; onChange: (value: string) => void }> = ({ value, onChange }) => (
+  <FormGroup
+    caption="Cloud"
+    footer={
+      <span className="text-muted">
+        {value.trim()
+          ? "Switched through the internet, from any network. The IP is only used at home for timers."
+          : "Leave empty to use the IP address only (same network)."}
+      </span>
+    }
+  >
+    <FormRow label="Board">
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="None"
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
+        className={`${rowInput} font-mono`}
+      />
+    </FormRow>
+  </FormGroup>
+);
+
 export const rowInput =
   "w-full bg-transparent text-right text-[17px] text-ink placeholder:text-dim focus:outline-none";
 export const rowSelect =

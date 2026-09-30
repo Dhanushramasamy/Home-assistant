@@ -1,6 +1,7 @@
 import { getDeviceById, updateDevice, addTimerRecord, closeTimerRecords, reconcileTimerRecords } from "./deviceStore";
 import { parseTimerEntry, parseTimers, powerForRelay, reasonFromStatus, timerErrorMessage, timerModeOf } from "./timerParse";
 import { getNetworkConfig } from "./networkStore";
+import { BoardSetupError, getBoardState, setBoardRelay } from "./boardStore";
 import {
   Device,
   DeviceControlResponse,
@@ -34,6 +35,8 @@ export async function executeDeviceControl(
   let nextPowerState: PowerState = action === "toggle"
     ? device.powerState === "on" ? "off" : "on"
     : action;
+
+  if (device.boardId) return controlViaBoard(device, nextPowerState === "on" ? "on" : "off");
 
   // Determine active communication mode
   const effectiveMode =
@@ -176,6 +179,47 @@ export async function executeDeviceControl(
 }
 
 /**
+ * Cloud mode: saves the wanted state on the board's row in Supabase. The
+ * board is listening and switches within a second; if it's offline it
+ * switches as soon as it reconnects.
+ */
+async function controlViaBoard(device: Device, power: "on" | "off"): Promise<DeviceControlResponse> {
+  const boardId = device.boardId as string;
+  const timestamp = new Date().toISOString();
+  const targetUrl = `cloud:${boardId}/relay/${device.relay || 1}`;
+  try {
+    const found = await setBoardRelay(boardId, device.relay || 1, power);
+    if (!found) throw new Error(`Board "${boardId}" doesn't exist. Check the device's Board setting.`);
+    const online = (await getBoardState(boardId))?.online ?? false;
+    const connectionState: ConnectionState = online ? "connected" : "offline";
+    await updateDevice(device.id, { powerState: power, connectionState });
+    return {
+      success: true,
+      deviceId: device.id,
+      powerState: power,
+      connectionState,
+      modeUsed: "cloud",
+      targetUrl,
+      message: online
+        ? `${device.name} turned ${power.toUpperCase()} via ${boardId}.`
+        : `${device.name} will turn ${power.toUpperCase()} when ${boardId} is back online.`,
+      timestamp,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      deviceId: device.id,
+      powerState: device.powerState,
+      connectionState: device.connectionState,
+      modeUsed: "cloud",
+      targetUrl,
+      message: (err as Error).message,
+      timestamp,
+    };
+  }
+}
+
+/**
  * Tests reachability of a single device
  */
 export async function testDeviceReachability(
@@ -194,6 +238,36 @@ export async function testDeviceReachability(
       reachable: false,
       message: `Device with ID "${deviceId}" not found.`,
       targetUrl: "N/A",
+    };
+  }
+
+  if (device.boardId) {
+    const boardId = device.boardId;
+    const startTime = Date.now();
+    let state: Awaited<ReturnType<typeof getBoardState>> = null;
+    let problem: string | undefined;
+    try {
+      state = await getBoardState(boardId);
+    } catch (err) {
+      problem = (err as Error).message;
+    }
+    const reachable = !!state?.online;
+    if (reachable) await updateDevice(device.id, { connectionState: "connected" });
+    return {
+      success: true,
+      deviceId: device.id,
+      deviceName: device.name,
+      ip: device.ip,
+      mode: "cloud",
+      reachable,
+      responseTimeMs: Date.now() - startTime,
+      message: reachable
+        ? `✓ ${device.name} is online through ${boardId}.`
+        : state
+          ? `✕ ${boardId} hasn't checked in${state.lastSeen ? ` since ${new Date(state.lastSeen).toLocaleString()}` : " yet"}.`
+          : `✕ ${problem ?? `Board "${boardId}" doesn't exist.`}`,
+      targetUrl: `cloud:${boardId}`,
+      details: reachable ? undefined : "Check the ESP32 has power and Wi-Fi with internet.",
     };
   }
 
@@ -411,6 +485,8 @@ export async function getDeviceStatus(deviceId: string): Promise<DeviceStatusRes
     return { success: false, deviceId, reachable: false, fetchedAt, message: "Device not found." };
   }
 
+  if (device.boardId) return boardStatus(device, fetchedAt);
+
   const networkConfig = await getNetworkConfig();
   const res = await espRequest(device, networkConfig, "status");
   if (!res.ok || !res.json) {
@@ -432,6 +508,29 @@ export async function getDeviceStatus(deviceId: string): Promise<DeviceStatusRes
   }
 
   return applyDeviceReport(device.id, { timers, raw: res.json, fetchedAt });
+}
+
+/** Cloud mode: the board's last report in Supabase stands in for /status. */
+async function boardStatus(device: Device, fetchedAt: string): Promise<DeviceStatusResponse> {
+  let state: Awaited<ReturnType<typeof getBoardState>> = null;
+  let message: string | undefined;
+  try {
+    state = await getBoardState(device.boardId as string);
+  } catch (err) {
+    message = err instanceof BoardSetupError ? err.message : undefined;
+  }
+  if (!state?.online || !state.report) {
+    if (device.connectionState !== "offline") await updateDevice(device.id, { connectionState: "offline" });
+    return {
+      success: true,
+      deviceId: device.id,
+      reachable: false,
+      savedTimers: device.timers ?? [],
+      fetchedAt,
+      message: message ?? timerErrorMessage("offline", device.name),
+    };
+  }
+  return applyDeviceReport(device.id, { timers: parseTimers(state.report) ?? [], raw: state.report, fetchedAt });
 }
 
 /**

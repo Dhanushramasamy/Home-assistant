@@ -26,7 +26,7 @@ export const ConnectionTestModal: React.FC<ConnectionTestModalProps> = ({
   const rows = result
     ? [
         { label: "IP Address", value: result.ip },
-        { label: "Mode", value: result.mode === "gateway" ? "Pi Gateway" : "Direct" },
+        { label: "Mode", value: result.mode === "cloud" ? "Cloud" : result.mode === "gateway" ? "Pi Gateway" : "Direct" },
         ...(result.responseTimeMs !== undefined ? [{ label: "Response", value: `${result.responseTimeMs} ms` }] : []),
       ]
     : [];

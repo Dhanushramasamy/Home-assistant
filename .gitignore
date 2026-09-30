@@ -42,3 +42,9 @@ next-env.d.ts
 
 # local fallback for per-user device access (real data lives in Supabase)
 /data/device-access.json
+
+# ESP32 Wi-Fi passwords
+firmware/**/secrets.h
+# raw ChatGPT export (contains passwords)
+docs/private/
+!.env.example
