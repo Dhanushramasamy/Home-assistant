@@ -27,6 +27,8 @@ interface BoardRow {
 
 export interface BoardState {
   online: boolean;
+  /** A relay change the board hasn't reported back yet (report shows the asked-for state). */
+  pending: boolean;
   /** The board's /status JSON, with timer countdowns moved on to now. */
   report: Record<string, unknown> | null;
   lastSeen: string | null;
@@ -50,11 +52,15 @@ const PENDING_MS = 15_000;
 
 const ms = (iso: string | null) => (iso ? new Date(iso).getTime() : 0);
 
+function isPending(row: BoardRow): boolean {
+  return ms(row.desired_at) > ms(row.reported_at) && Date.now() - ms(row.desired_at) < PENDING_MS;
+}
+
 // Right after a tap the board's last report still has the old state. Until it
 // reports again (normally about a second), the command it was sent counts.
 function withPending(row: BoardRow, report: Record<string, unknown>): Record<string, unknown> {
   const desired = row.desired ?? {};
-  const pending = ms(row.desired_at) > ms(row.reported_at) && Date.now() - ms(row.desired_at) < PENDING_MS;
+  const pending = isPending(row);
   if (!pending || Object.keys(desired).length === 0) return report;
   const relayNumbers = new Set<number>(Object.keys(desired).map(Number).filter((n) => n > 0));
   for (const key of Object.keys(report)) {
@@ -122,7 +128,7 @@ async function readBoard(boardId: string): Promise<BoardRow | null> {
 export async function getBoardState(boardId: string): Promise<BoardState | null> {
   const row = await readBoard(boardId);
   if (!row) return null;
-  return { online: isOnline(row), report: reportNow(row), lastSeen: row.last_seen };
+  return { online: isOnline(row), pending: isPending(row), report: reportNow(row), lastSeen: row.last_seen };
 }
 
 /** Asks a board to switch one relay. False if the board doesn't exist. */
@@ -158,7 +164,7 @@ export async function allBoardStates(): Promise<Map<string, BoardState>> {
   const { data, error } = await supabase.from(BOARD_TABLE).select("*");
   if (error) return result;
   for (const row of (data as BoardRow[] | null) ?? []) {
-    result.set(row.board_id, { online: isOnline(row), report: reportNow(row), lastSeen: row.last_seen });
+    result.set(row.board_id, { online: isOnline(row), pending: isPending(row), report: reportNow(row), lastSeen: row.last_seen });
   }
   return result;
 }

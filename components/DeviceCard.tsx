@@ -33,11 +33,12 @@ interface DeviceCardProps {
   /** Admin only; hidden for other users. */
   onEditDevice?: (device: Device) => void;
   onDeleteDevice?: (device: Device) => void;
+  /** Tapped and waiting for the device to confirm. */
   isActionLoading?: boolean;
   /** Position in the grid, used to stagger the entrance. */
   index?: number;
   espStatus?: EspStatusEntry;
-  onRefreshStatus?: (deviceId: string) => Promise<void>;
+  onRefreshStatus?: (deviceId: string) => Promise<unknown>;
   onStartTimer?: (deviceId: string, action: TimerAction, seconds: number, repeat: boolean) => Promise<void>;
   onCancelTimer?: (deviceId: string, timerId: number) => Promise<void>;
   onClearTimers?: (deviceId: string) => Promise<void>;
@@ -65,7 +66,9 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
   const isConnected = espStatus ? espStatus.reachable : device.connectionState === "connected";
   const savedCount = device.timers?.length ?? 0;
   const Icon = deviceIcons[device.type] ?? Cpu;
-  const toggle = () => !isActionLoading && onTogglePower(device.id, device.powerState);
+  // No status yet = still checking the device for the first time.
+  const loading = isActionLoading || !espStatus;
+  const toggle = () => !loading && onTogglePower(device.id, device.powerState);
   const timers = espStatus?.timers ?? [];
   const now = useNow(timers.length > 0);
   // Show the timer that fires next; "+N" for the rest.
@@ -166,8 +169,8 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
             <PowerPill
               on={isOn}
               onToggle={toggle}
-              disabled={isActionLoading}
-              unavailable={!!espStatus && !espStatus.reachable}
+              loading={loading}
+              unavailable={!!espStatus && !espStatus.reachable && !isActionLoading}
               label={`${device.name} power`}
             />
           </div>
@@ -179,6 +182,7 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
         isOpen={isDetailOpen}
         onClose={() => setIsDetailOpen(false)}
         onTogglePower={onTogglePower}
+        isActionLoading={loading}
         onTestConnection={onTestConnection}
         onEditDevice={onEditDevice}
         onDeleteDevice={onDeleteDevice}

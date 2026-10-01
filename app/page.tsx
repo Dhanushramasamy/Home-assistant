@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Device, DeviceControlResponse, NetworkConfig, PowerState, ToastMessage, TestConnectionResponse, TimerAction } from "@/types";
+import { Device, DeviceControlResponse, DeviceStatusResponse, NetworkConfig, PowerState, ToastMessage, TestConnectionResponse, TimerAction } from "@/types";
 import { fetchDeviceStatus, requestCancelTimer, requestClearTimers, requestStartTimer } from "@/lib/timerClient";
 import { useBackClose } from "@/lib/useBackClose";
 import type { EspStatusEntry } from "@/components/DeviceCard";
@@ -19,12 +19,8 @@ import { Backdrop } from "@/components/ui/Backdrop";
 import { easeApple, springs } from "@/lib/deviceTheme";
 import { Plus, Settings, Search, X, House, User, LogOut } from "lucide-react";
 
-/** How long a just-flipped switch ignores older server data (live sync). */
-/** How long a tapped switch keeps its new state before server reads count again. */
-function pendingDeadline(cloud: boolean) {
-  // A cloud board confirms in 2–4 s.
-  return Date.now() + (cloud ? 8000 : 5000);
-}
+/** Longest a tapped cloud switch waits for its board to confirm. */
+const CONFIRM_TIMEOUT_MS = 12_000;
 
 export default function HomeControlPage() {
   const [activeTab, setActiveTab] = useState<string>("All"); // "All" | roomName | "settings"
@@ -177,7 +173,22 @@ export default function HomeControlPage() {
   // Live sync: re-read devices every 3 s while the app is visible, and right
   // away when it comes back to the foreground, so a switch flipped on another
   // phone shows up without a manual refresh.
-  const pendingUntil = useRef<Record<string, number>>({});
+  // Switches tapped and waiting for their device to confirm (id -> tapped
+  // state). Each switch is handled on its own: it shows a loader, ignores
+  // more taps, and background reads leave it alone until it's confirmed.
+  const busyRef = useRef<Record<string, PowerState>>({});
+  const [busy, setBusy] = useState<Record<string, boolean>>({});
+  const setSwitchBusy = useCallback((id: string, target: PowerState | null) => {
+    if (target) busyRef.current[id] = target;
+    else delete busyRef.current[id];
+    setBusy((prev) => {
+      const next = { ...prev };
+      if (target) next[id] = true;
+      else delete next[id];
+      return next;
+    });
+  }, []);
+
   const syncDevices = useCallback(async () => {
     try {
       const res = await fetch("/api/devices", { cache: "no-store" });
@@ -190,8 +201,8 @@ export default function HomeControlPage() {
       setDevices((prev) =>
         list.map((d) => {
           const local = prev.find((p) => p.id === d.id);
-          // Keep a switch this phone just flipped until the server has caught up.
-          if (local && (pendingUntil.current[d.id] ?? 0) > Date.now()) return { ...d, powerState: local.powerState };
+          // A switch waiting for its device keeps what was tapped.
+          if (local && busyRef.current[d.id]) return { ...d, powerState: local.powerState };
           return d;
         })
       );
@@ -219,22 +230,15 @@ export default function HomeControlPage() {
 
   const onDevicesCount = devices.filter((d) => d.powerState === "on").length;
 
-  // Instant Power Toggle (0ms Optimistic UI)
+  // Tap: the switch shows the new state with a loader straight away, then
+  // waits for the device. One tap at a time per switch.
   const handleTogglePower = async (deviceId: string, currentPower: PowerState) => {
     const targetDevice = devices.find((d) => d.id === deviceId);
-    if (!targetDevice) return;
+    if (!targetDevice || busyRef.current[deviceId]) return;
 
     const nextState: PowerState = currentPower === "on" ? "off" : "on";
-    const cloud = !!targetDevice.boardId;
-    pendingUntil.current[deviceId] = pendingDeadline(cloud);
-
-    updateDevicesState((prev) =>
-      prev.map((d) =>
-        d.id === deviceId
-          ? { ...d, powerState: nextState, connectionState: "connected" }
-          : d
-      )
-    );
+    setSwitchBusy(deviceId, nextState);
+    updateDevicesState((prev) => prev.map((d) => (d.id === deviceId ? { ...d, powerState: nextState } : d)));
 
     const effectiveMode = networkConfig?.mode === "gateway" || targetDevice.mode === "gateway" ? "gateway" : "direct";
 
@@ -246,27 +250,36 @@ export default function HomeControlPage() {
       }).catch(() => {});
     }
 
-    fetch("/api/devices/control", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ deviceId, action: nextState }),
-    })
-      .then(async (res) => {
-        const result = (await res.json().catch(() => null)) as DeviceControlResponse | null;
-        if (result && result.success === false) {
-          // Nothing switched: put the tile back and say why.
-          pendingUntil.current[deviceId] = 0;
-          updateDevicesState((prev) =>
-            prev.map((d) => (d.id === deviceId ? { ...d, powerState: currentPower, connectionState: result.connectionState } : d))
-          );
-          showToast("error", `${targetDevice.name} didn't switch`, result.message);
-          return;
-        }
-        // Re-read once the device has had time to act (a cloud board
-        // confirms in 2–4 s). Manual ON/OFF never cancels timers.
-        setTimeout(() => void refreshStatus(deviceId, true), cloud ? 3500 : 800);
-      })
-      .catch(() => {});
+    let result: DeviceControlResponse | null = null;
+    try {
+      const res = await fetch("/api/devices/control", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deviceId, action: nextState }),
+      });
+      result = (await res.json().catch(() => null)) as DeviceControlResponse | null;
+    } catch {}
+
+    if (!result || result.success === false) {
+      // Nothing switched: put the switch back and say why.
+      setSwitchBusy(deviceId, null);
+      updateDevicesState((prev) =>
+        prev.map((d) =>
+          d.id === deviceId ? { ...d, powerState: currentPower, ...(result ? { connectionState: result.connectionState } : {}) } : d
+        )
+      );
+      showToast("error", `${targetDevice.name} didn't switch`, result?.message ?? "Couldn't reach the app's server.");
+      return;
+    }
+
+    if (!targetDevice.boardId) {
+      // Direct: the ESP32 itself answered, so it's done. Manual ON/OFF never cancels timers.
+      setSwitchBusy(deviceId, null);
+      setTimeout(() => void refreshStatus(deviceId), 800);
+      return;
+    }
+
+    await confirmSwitch(deviceId, nextState, targetDevice.name);
   };
 
   // ESP32 status + timers. Each ESP32's /status is the source of truth for its
@@ -284,12 +297,12 @@ export default function HomeControlPage() {
   const ONLINE_SYNC_MS = 10_000;
 
   const refreshStatus = useCallback(
-    async (deviceId: string, afterTap = false) => {
+    async (deviceId: string): Promise<DeviceStatusResponse | undefined> => {
       const device = devicesRef.current.find((d) => d.id === deviceId);
-      if (!device) return;
+      if (!device) return undefined;
       const status = await fetchDeviceStatus(device, networkConfig?.mode);
-      // A background read must not undo a switch tapped moments ago.
-      const holding = !afterTap && (pendingUntil.current[deviceId] ?? 0) > Date.now();
+      // A switch waiting for its device keeps what was tapped.
+      const holding = !!busyRef.current[deviceId];
 
       const plan = syncPlan.current[deviceId] ?? { nextAt: 0, failures: 0 };
       plan.failures = status.reachable ? 0 : plan.failures + 1;
@@ -324,9 +337,33 @@ export default function HomeControlPage() {
             : d
         )
       );
+      return status;
     },
     [networkConfig?.mode]
   );
+
+  // Cloud switch: wait until its board reports the tapped state itself
+  // (normally 1–3 s), not just the app's own request.
+  const confirmSwitch = async (deviceId: string, target: PowerState, name: string) => {
+    const deadline = Date.now() + CONFIRM_TIMEOUT_MS;
+    let last: DeviceStatusResponse | undefined;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 900));
+      last = await refreshStatus(deviceId);
+      if (last?.reachable && !last.pending && last.power === target) {
+        setSwitchBusy(deviceId, null);
+        return;
+      }
+    }
+    setSwitchBusy(deviceId, null);
+    const actual = last?.reachable && !last.pending ? last.power : undefined;
+    if (actual) setDevices((prev) => prev.map((d) => (d.id === deviceId ? { ...d, powerState: actual } : d)));
+    showToast(
+      "warning",
+      `${name} hasn't confirmed`,
+      actual ? `It still reports ${actual.toUpperCase()}.` : "Its board looks offline. It will switch when it's back."
+    );
+  };
 
   // On load: contact every ESP32 independently, then follow each one's schedule.
   const deviceIdList = devices.map((d) => d.id).join(",");
@@ -782,7 +819,7 @@ export default function HomeControlPage() {
                       onTestConnection={handleTestConnection}
                       onEditDevice={isAdmin ? (device) => setEditingDevice(device) : undefined}
                       onDeleteDevice={isAdmin ? handleDeleteDevice : undefined}
-                      isActionLoading={false}
+                      isActionLoading={!!busy[device.id]}
                       espStatus={espStatus[device.id]}
                       onRefreshStatus={refreshStatus}
                       onStartTimer={handleStartTimer}

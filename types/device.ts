@@ -66,6 +66,8 @@ export interface DeviceStatusResponse {
   rssi?: number;
   /** Timers the DB still has as scheduled (after reconciling, if reachable). */
   savedTimers?: DeviceTimerConfig[];
+  /** Cloud switch: the app asked for a change the board hasn't reported yet. */
+  pending?: boolean;
   fetchedAt: string;
   message?: string;
 }

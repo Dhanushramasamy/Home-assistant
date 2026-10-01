@@ -38,11 +38,13 @@ interface Device3DModalProps {
   isOpen: boolean;
   onClose: () => void;
   onTogglePower: (deviceId: string, currentPower: PowerState) => void;
+  /** Tapped and waiting for the device (or still checking it). */
+  isActionLoading?: boolean;
   onTestConnection?: (deviceId: string) => void;
   onEditDevice?: (device: Device) => void;
   onDeleteDevice?: (device: Device) => void;
   espStatus?: EspStatusEntry;
-  onRefreshStatus?: (deviceId: string) => Promise<void>;
+  onRefreshStatus?: (deviceId: string) => Promise<unknown>;
   onStartTimer?: (deviceId: string, action: TimerAction, seconds: number, repeat: boolean) => Promise<void>;
   onCancelTimer?: (deviceId: string, timerId: number) => Promise<void>;
   onClearTimers?: (deviceId: string) => Promise<void>;
@@ -66,6 +68,7 @@ export const Device3DModal: React.FC<Device3DModalProps> = ({
   isOpen,
   onClose,
   onTogglePower,
+  isActionLoading = false,
   onTestConnection,
   onEditDevice,
   onDeleteDevice,
@@ -226,7 +229,8 @@ export const Device3DModal: React.FC<Device3DModalProps> = ({
             <PowerPill
               on={isOn}
               onToggle={() => onTogglePower(device.id, device.powerState)}
-              unavailable={offline}
+              loading={isActionLoading}
+              unavailable={offline && !isActionLoading}
               size="lg"
               label="Power"
             />
@@ -247,7 +251,8 @@ export const Device3DModal: React.FC<Device3DModalProps> = ({
               <div className="flex h-60 items-center justify-center">
                 <motion.button
                   whileTap={{ scale: 0.94 }}
-                  onClick={() => onTogglePower(device.id, device.powerState)}
+                  onClick={() => !isActionLoading && onTogglePower(device.id, device.powerState)}
+                  disabled={isActionLoading}
                   className="glass-btn flex h-32 w-32 items-center justify-center rounded-full"
                   aria-label="Toggle power"
                 >

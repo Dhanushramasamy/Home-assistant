@@ -2,7 +2,7 @@
 
 import React from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Power } from "lucide-react";
+import { Loader2, Power } from "lucide-react";
 import { springs } from "@/lib/deviceTheme";
 import { playSwitchClick } from "@/lib/sound";
 
@@ -16,13 +16,24 @@ interface PowerPillProps {
   sound?: boolean;
   /** Real state unknown (device unreachable): show "—" and disable. */
   unavailable?: boolean;
+  /** Waiting for the device to confirm (or the first check): spinner, taps ignored. */
+  loading?: boolean;
 }
 
 /**
  * Glass pill toggle: "On" + glowing lime knob when on,
  * white knob + "Off" when off. The knob slides across on toggle.
  */
-export const PowerPill: React.FC<PowerPillProps> = ({ on: onProp, onToggle, disabled, size = "md", label, sound = true, unavailable = false }) => {
+export const PowerPill: React.FC<PowerPillProps> = ({
+  on: onProp,
+  onToggle,
+  disabled,
+  size = "md",
+  label,
+  sound = true,
+  unavailable = false,
+  loading = false,
+}) => {
   const on = onProp && !unavailable;
   const knob = size === "lg" ? "h-12 w-12" : "h-10 w-10";
   const icon = size === "lg" ? "h-5 w-5" : "h-[18px] w-[18px]";
@@ -33,10 +44,12 @@ export const PowerPill: React.FC<PowerPillProps> = ({ on: onProp, onToggle, disa
       role="switch"
       aria-checked={unavailable ? "mixed" : on}
       aria-label={unavailable ? `${label ?? "Power"} unavailable` : label}
-      title={unavailable ? "Device unreachable, state unknown" : undefined}
+      aria-busy={loading}
+      title={unavailable ? "Device unreachable, state unknown" : loading ? "Waiting for the device…" : undefined}
       disabled={disabled || unavailable}
       onClick={(e) => {
         e.stopPropagation();
+        if (loading) return;
         if (sound) playSwitchClick(!on);
         onToggle();
       }}
@@ -68,14 +81,18 @@ export const PowerPill: React.FC<PowerPillProps> = ({ on: onProp, onToggle, disa
           boxShadow: on ? "0 0 18px 2px rgb(232 240 71 / 0.45)" : "0 2px 8px rgb(0 0 0 / 0.35)",
         }}
       >
-        <motion.span
-          initial={false}
-          animate={{ rotate: on ? 0 : -90 }}
-          transition={springs.soft}
-          className="flex"
-        >
-          <Power className={`${icon} text-[#151515]`} strokeWidth={2.4} />
-        </motion.span>
+        {loading ? (
+          <Loader2 className={`${icon} animate-spin text-[#151515]`} strokeWidth={2.4} />
+        ) : (
+          <motion.span
+            initial={false}
+            animate={{ rotate: on ? 0 : -90 }}
+            transition={springs.soft}
+            className="flex"
+          >
+            <Power className={`${icon} text-[#151515]`} strokeWidth={2.4} />
+          </motion.span>
+        )}
       </motion.span>
     </button>
   );

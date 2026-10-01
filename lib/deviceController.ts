@@ -15,6 +15,17 @@ import {
   ConnectionState,
 } from "@/types";
 
+// On Vercel the server is in a data centre, so it can never reach a home
+// network address; say so straight away instead of waiting for a timeout.
+const ON_VERCEL = process.env.VERCEL === "1";
+const PRIVATE_IP = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|127\.|169\.254\.)/;
+
+function unreachableFromHere(ip: string): boolean {
+  return ON_VERCEL && PRIVATE_IP.test(ip);
+}
+
+const NOT_FROM_CLOUD = "The online app can't reach your home Wi-Fi directly. This switch works from home until its board is on the cloud.";
+
 /**
  * Controller abstraction layer for smart home devices.
  * Decides whether to use Direct ESP32 mode or Raspberry Pi 5 Gateway mode securely.
@@ -45,6 +56,19 @@ export async function executeDeviceControl(
       : "direct";
 
   const timestamp = new Date().toISOString();
+
+  if (effectiveMode === "direct" && unreachableFromHere(device.ip)) {
+    return {
+      success: false,
+      deviceId: device.id,
+      powerState: device.powerState,
+      connectionState: "offline",
+      modeUsed: "direct",
+      targetUrl: `http://${device.ip}/${nextPowerState}`,
+      message: NOT_FROM_CLOUD,
+      timestamp,
+    };
+  }
 
   if (effectiveMode === "direct") {
     // MODE 1: DIRECT ESP32
@@ -276,6 +300,20 @@ export async function testDeviceReachability(
 
   const startTime = Date.now();
 
+  if (effectiveMode === "direct" && unreachableFromHere(device.ip)) {
+    return {
+      success: true,
+      deviceId: device.id,
+      deviceName: device.name,
+      ip: device.ip,
+      mode: "direct",
+      reachable: false,
+      message: `✕ ${device.name} (${device.ip}) is on your home network.`,
+      details: NOT_FROM_CLOUD,
+      targetUrl: `http://${device.ip}/`,
+    };
+  }
+
   if (effectiveMode === "direct") {
     const targetUrl = `http://${device.ip}/`;
     const controller = new AbortController();
@@ -431,6 +469,10 @@ async function espRequestUncached(
   const effectiveMode =
     networkConfig.mode === "gateway" || device.mode === "gateway" ? "gateway" : "direct";
 
+  if (effectiveMode === "direct" && unreachableFromHere(device.ip)) {
+    return { reached: false, ok: false, status: 0, json: null, targetUrl: `http://${device.ip}/${espPath}`, error: NOT_FROM_CLOUD };
+  }
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), networkConfig.timeoutMs || 3000);
 
@@ -549,6 +591,7 @@ async function boardStatus(device: Device, fetchedAt: string): Promise<DeviceSta
     uptime: typeof raw.uptime === "number" ? raw.uptime : undefined,
     rssi: typeof raw.rssi === "number" ? raw.rssi : undefined,
     savedTimers: timerNotes(device.id),
+    pending: state.pending,
     fetchedAt,
   };
 }
