@@ -23,6 +23,7 @@ Everything about the project, from how it started to what's next, is in **[`docs
 11. [Troubleshooting](docs/11-troubleshooting.md)
 12. [Roadmap and known issues](docs/12-roadmap-and-known-issues.md)
 13. [Cloud control](docs/13-cloud-control.md)
+14. [Adding a board](docs/14-adding-a-board.md)
 
 ## Quick start
 

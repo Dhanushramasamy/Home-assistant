@@ -32,6 +32,9 @@ users ──── access ──── switches ──── boards ◄───
 | `reported` | board | its `/status` JSON: relays, timers, Wi-Fi, IP, uptime, cloud state, `acks` (command results) |
 | `ip`, `ssid`, `rssi` | board | current network, shown in Settings → Network |
 | `desired_at`, `reported_at`, `last_seen` | trigger | set by the database's clock |
+| `relay_pins`, `relay_active_low` | admin (Settings → Boards) | ESP32 pin per relay; relay type |
+| `wifi` | admin | `[{ssid, priority, password}]`, password encrypted by the server |
+| `secret` | server | the board's sign-in password, encrypted ([14](14-adding-a-board.md)) |
 
 Details: [13 · Cloud control](13-cloud-control.md).
 
@@ -79,7 +82,8 @@ One row per permission. Admins need no rows.
 | File | Does | Status |
 |---|---|---|
 | `supabase/four_tables.sql` | Creates the four tables, functions, security and Realtime; copied the old data | ✅ run 2026-10-01 |
-| `supabase/drop_old_tables.sql` | Deletes the tables from before the move | run once, after the move was checked |
+| `supabase/drop_old_tables.sql` | Deletes the tables from before the move | ✅ run 2026-10-01 |
+| `supabase/board_setup.sql` | Board setup columns: relays, pins, Wi-Fi, encrypted sign-in | ✅ run 2026-10-01 |
 
 The old tables were `user_PRB_home_assistant`, `user_device_access_PRB_home_assistant`, `device_PRB_home_assistant`, `device_timer_PRB_home_assistant` and `esp_board_prb_home_assistant`. Their SQL files are in git history up to commit `a9e8237`.
 

@@ -20,7 +20,8 @@ This folder documents the whole project end to end: how it started, what exists 
 | [10 · Setup and deployment](10-setup-and-deployment.md) | Running locally, environment variables, SQL order, Vercel, flashing an ESP32 |
 | [11 · Troubleshooting](11-troubleshooting.md) | Symptoms, causes and fixes for everything we've hit so far |
 | [12 · Roadmap and known issues](12-roadmap-and-known-issues.md) | What isn't done yet and what to build next |
-| [13 · Cloud control](13-cloud-control.md) | Switching from any network through Supabase: boards table, security, firmware, adding a board |
+| [13 · Cloud control](13-cloud-control.md) | Switching from any network through Supabase: boards table, security, firmware |
+| [14 · Adding a board](14-adding-a-board.md) | Settings → Boards: set up an ESP32 in the app, download its code, upload it |
 
 ## Reference documents
 

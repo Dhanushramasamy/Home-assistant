@@ -75,6 +75,7 @@ function toDevice(row: SwitchRow, boards: Map<string, BoardState>): Device {
   let connectionState: Device["connectionState"] = live?.connectionState ?? "connected";
   let lastSeen = live?.lastSeen;
 
+  const boardReport = row.board_id ? boards.get(row.board_id)?.report : undefined;
   if (row.board_id) {
     const board = boards.get(row.board_id);
     connectionState = board?.online ? "connected" : "offline";
@@ -89,7 +90,8 @@ function toDevice(row: SwitchRow, boards: Map<string, BoardState>): Device {
     room: row.room,
     type: row.type,
     mode: "direct",
-    ip: row.ip ?? "",
+    // Cloud boards get their address from the Wi-Fi; use the one they report.
+    ip: (typeof boardReport?.ip === "string" && boardReport.ip) || row.ip || "",
     relay,
     boardId: row.board_id,
     powerState,

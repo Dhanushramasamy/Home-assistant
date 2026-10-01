@@ -109,13 +109,7 @@ The Pixel hotspot now uses DHCP, because its range changes each start and a fixe
 
 ## Adding a board
 
-```bash
-# 1. Create its sign-in and write it into the sketch's secrets.h
-node scripts/board-login.mjs esp200 "ESP200 · Home bedroom" --secrets firmware/esp200/secrets.h
-# 2. Add cloud.h to the sketch (see esp201.ino: CLOUD_RELAYS, include, setRelay hook,
-#    cloudTimerSignature, cloudBegin/cloudLoop, "relays"/"cloud" in /status), flash it
-# 3. In the app: Edit each device on that board -> Cloud -> Board = esp200
-```
+From the app: Settings → Boards → Add board, then Download code and upload it. See [14 · Adding a board](14-adding-a-board.md).
 
 ## Checking it
 

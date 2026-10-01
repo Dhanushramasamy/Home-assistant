@@ -2,8 +2,11 @@
 
 Arduino sketches for the ESP32 relay controllers used by this app. History and decisions: `../docs/esp32-history.md`. App ↔ firmware contract: `../docs/esp32-timer-firmware.md`.
 
+**New boards (and ESP201 since 2026-10-01) use `template/`**: one sketch for every ESP32, set up in the app (Settings → Boards) and downloaded ready to upload. See `../docs/14-adding-a-board.md`. The folders below are the older per-board sketches, kept for reference.
+
 | Folder | Device | Relays |
 |---|---|---|
+| `template/` | Every board (common template) | 1–8, pins from the app |
 | `esp200/` | ESP200, home bedroom | Relay 1 = GPIO 23 (Light), Relay 2 = GPIO 22 (Fan) |
 | `esp201/` | ESP201, Erode bedroom | Relay 1 = GPIO 23 · cloud control (`cloud.h`, see `../docs/13-cloud-control.md`) |
 
