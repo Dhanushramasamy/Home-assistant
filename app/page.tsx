@@ -19,8 +19,8 @@ import { Backdrop } from "@/components/ui/Backdrop";
 import { easeApple, springs } from "@/lib/deviceTheme";
 import { Plus, Settings, Search, X, House, User, LogOut } from "lucide-react";
 
-/** Longest the app checks that a cloud board really switched. */
-const CONFIRM_TIMEOUT_MS = 12_000;
+/** Longest a tapped cloud switch waits for its board to confirm. */
+const CONFIRM_TIMEOUT_MS = 10_000;
 
 export default function HomeControlPage() {
   const [activeTab, setActiveTab] = useState<string>("All"); // "All" | roomName | "settings"
@@ -279,19 +279,16 @@ export default function HomeControlPage() {
       return;
     }
 
-    // Cloud: the tap is saved and the board is online and listening, so it
-    // switches within about half a second. Stop the loader now; the board's
-    // own report (2–3 s later) is checked in the background.
-    if (result.connectionState === "connected") {
+    // Cloud board offline: say so now instead of waiting.
+    if (result.connectionState !== "connected") {
       setSwitchBusy(deviceId, null);
-      void confirmSwitch(deviceId, nextState, targetDevice.name);
+      updateDevicesState((prev) => prev.map((d) => (d.id === deviceId ? { ...d, powerState: currentPower } : d)));
+      showToast("error", `${targetDevice.name} is offline`, "Its board isn't connected. Check its power and Wi-Fi.");
       return;
     }
 
-    // Board offline: the switch happens when it's back.
-    setSwitchBusy(deviceId, null);
-    updateDevicesState((prev) => prev.map((d) => (d.id === deviceId ? { ...d, powerState: currentPower } : d)));
-    showToast("warning", `${targetDevice.name} is offline`, result.message);
+    // Keep the loader until the board itself reports the new state.
+    await confirmSwitch(deviceId, nextState, currentPower, targetDevice.name);
   };
 
   // ESP32 status + timers. Each ESP32's /status is the source of truth for its
@@ -354,28 +351,32 @@ export default function HomeControlPage() {
     [networkConfig?.mode]
   );
 
-  // Cloud switch, after the loader: checks the board's own report. Only if
-  // the board reports something else is the switch put back, with a message.
-  const confirmSwitch = async (deviceId: string, target: PowerState, name: string) => {
+  // Cloud switch: the loader stays until the board reports the tapped state
+  // itself (normally 2–3 s). If it reports something else or doesn't answer,
+  // the switch shows the real state and an error says what happened.
+  const confirmSwitch = async (deviceId: string, target: PowerState, previous: PowerState, name: string) => {
     const deadline = Date.now() + CONFIRM_TIMEOUT_MS;
     let last: DeviceStatusResponse | undefined;
     while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 1500));
-      // Tapped again meanwhile: that tap checks itself.
-      if (busyRef.current[deviceId]) return;
+      await new Promise((r) => setTimeout(r, 600));
       last = await refreshStatus(deviceId);
       if (last?.reachable && !last.pending) {
-        if (last.power === target) return;
+        if (last.power === target) {
+          setSwitchBusy(deviceId, null);
+          return;
+        }
         break;
       }
     }
-    const actual = last?.reachable && !last.pending ? last.power : undefined;
-    if (actual === target) return;
-    if (actual) setDevices((prev) => prev.map((d) => (d.id === deviceId ? { ...d, powerState: actual } : d)));
+    setSwitchBusy(deviceId, null);
+    const actual = last?.reachable && !last.pending && last.power ? last.power : previous;
+    setDevices((prev) => prev.map((d) => (d.id === deviceId ? { ...d, powerState: actual } : d)));
     showToast(
-      "warning",
+      "error",
       `${name} didn't switch`,
-      actual ? `Its board still reports ${actual.toUpperCase()}.` : "Its board hasn't confirmed. Check that it's online."
+      last?.reachable && !last.pending
+        ? `Its board reports ${actual.toUpperCase()}. Try again.`
+        : "Its board didn't answer in time. Check its power and Wi-Fi, then try again."
     );
   };
 
