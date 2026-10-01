@@ -25,7 +25,7 @@ The app never reaches the ESP32. Both talk to Supabase.
 
 ## Database
 
-`supabase/add_cloud_boards.sql` (run once, already run) creates `esp_board_prb_home_assistant`, one row per board:
+The `boards` table ([06](06-database.md), created by `supabase/four_tables.sql`) has one row per board:
 
 | Column | Written by | Meaning |
 |---|---|---|
@@ -34,16 +34,25 @@ The app never reaches the ESP32. Both talk to Supabase.
 | `auth_user_id` | `scripts/board-login.mjs` | The board's own Supabase sign-in |
 | `desired` | app (and board, for local changes) | `{"1":"on","2":"off"}`: what the relays should be |
 | `desired_at` | trigger | When `desired` last changed |
-| `reported` | board | The board's `/status` JSON: relays, timers, IP, Wi-Fi, uptime, cloud state |
+| `commands`, `command_seq` | app | Timer commands, numbered; the last 10 are kept |
+| `reported` | board | The board's `/status` JSON: relays, timers, IP, Wi-Fi, uptime, cloud state, `acks` |
 | `reported_at` | trigger | When `reported` last changed |
 | `ip`, `ssid`, `rssi` | board | Current network, shown in Settings → Network |
 | `last_seen` | trigger | Every check-in (every 60 s). Online = seen in the last 150 s |
 
 The SQL also:
-- adds `board_id` to `device_PRB_home_assistant`, linking one app device (one relay) to a board;
-- creates `set_board_relay(board, relay, power)`, which changes one relay without overwriting the others (server only);
-- adds the table to the `supabase_realtime` publication;
-- adds the `esp_board_touch` trigger, so the database's clock (not the board's) sets `last_seen`.
+- links each switch to a board with `switches.board_id` + `relay`;
+- creates `board_set_relay(board, relay, power)`, which changes one relay without overwriting the others (server only);
+- creates `board_push_command(board, command)` for timers (server only);
+- adds `boards` to the `supabase_realtime` publication;
+- adds the `boards_touch` trigger, so the database's clock (not the board's) sets `last_seen`.
+
+### Timers through the cloud
+
+1. **App:** `board_push_command` adds e.g. `{"seq":7,"at":…,"op":"timer","relay":1,"action":"off","seconds":1800,"repeat":false}` to `commands`. Other ops are `cancel` (`id`) and `cancel_relay` (`relay`).
+2. **Board:** it hears the change instantly and runs every command newer than the last one it ran. That number is saved in flash, so a restart never repeats a command, and commands older than 5 minutes are ignored.
+3. **Board:** it reports the result in `reported.acks`, e.g. `{"seq":7,"ok":true,"id":3}`, or `{"ok":false,"error":"limit"}`.
+4. **App:** it waits up to 10 s for the ack (normally 4–6 s), then shows the timer. It refuses to queue timers for an offline board.
 
 ### Security
 
@@ -57,7 +66,7 @@ The SQL also:
 
 | Where | What changed |
 |---|---|
-| `lib/boardStore.ts` | Reads boards, sets relays (`set_board_relay`), moves timer countdowns on by the report's age, counts an unconfirmed tap for 15 s |
+| `lib/boardStore.ts` | Reads boards, sets relays (`board_set_relay`), queues timer commands (`board_push_command`) and waits for acks, moves timer countdowns on by the report's age, counts an unconfirmed tap for 15 s |
 | `lib/deviceController.ts` | Devices with a `boardId` switch through the board (`controlViaBoard`), read status from the board's report (`boardStatus`) and test by last check-in |
 | `app/api/devices` (GET) | Board devices take power and online state from the board, so wall-switch or timer changes show on every phone within 3 s |
 | `app/api/boards` | Admin only: every board with network, IP, signal, last check-in |
@@ -66,7 +75,7 @@ The SQL also:
 | `app/api/cron/keepalive` + `vercel.json` | Vercel calls it daily at 08:00 IST so the free Supabase project never pauses. Needs `CRON_SECRET` in Vercel |
 | `lib/timerParse.ts` | Reads `relayN: true/false` too (ESP201's format, which the app used to miss) |
 
-**Timers** for cloud devices are *shown* from anywhere, because they come from the report. *Creating or cancelling* a timer still goes to the board's IP, so it only works on the same network. Cloud timers are the next step ([12](12-roadmap-and-known-issues.md)).
+**Timers** for cloud switches are created, cancelled and shown from anywhere (see *Timers through the cloud* above).
 
 ## The firmware
 

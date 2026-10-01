@@ -30,12 +30,11 @@ Without `SESSION_SECRET`, login returns "Sign-in isn't configured on the server"
 
 ## Database setup (Supabase SQL editor, once)
 
-1. `supabase/add_user_role.sql`
-2. `supabase/add_device_timer_records.sql`
-3. `supabase/add_device_access.sql`
-4. Set `SUPABASE_SERVICE_ROLE_KEY` locally **and** on Vercel, and redeploy.
-5. `supabase/lock_down_tables.sql`
-6. `supabase/add_cloud_boards.sql`, then `node scripts/board-login.mjs <board> --secrets firmware/<board>/secrets.h` for each cloud board
+1. Set `SUPABASE_SERVICE_ROLE_KEY` locally **and** on Vercel, and redeploy.
+2. `supabase/four_tables.sql`: the four tables (users, boards, switches, access), functions, security, Realtime.
+3. For each cloud board: `node scripts/board-login.mjs <board> "<name>" --secrets firmware/<board>/secrets.h`.
+
+On a brand-new project, add the first admin by hand in the SQL editor (password hash from `lib/auth/password.ts`), or create the user from an existing install.
 
 Details: [06 · Database](06-database.md).
 

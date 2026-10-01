@@ -9,10 +9,6 @@
 
 ## Planned features
 
-### Cloud timers
-
-- Creating and cancelling timers still goes to the board's IP (same network only). Send them through the board's row too, like ON/OFF.
-
 ### Faster cloud confirmation
 
 - Reuse one HTTPS connection for the board's reports, bringing confirmation from 2–4 s down to under 1 s.
@@ -35,10 +31,9 @@
 |---|---|---|
 | Vercel / mobile data can't reach ESP200 | Remote control of ESP200 only works on the home network | Cloud control ([13](13-cloud-control.md)); done for ESP201 |
 | Hotspot address range changes every time | ESP200's fixed hotspot IP breaks | ESP201 uses DHCP and reports its IP; do the same for ESP200 |
-| Cloud timers not done | Timers on cloud devices can only be created on the same network | Cloud timers |
 | ESP201 firmware uses 90 % of flash | Room for little more | Switch to a bigger app partition when adding features |
 | ESP200 runs old timer firmware | Can't create timers; basic mode only | Flash `firmware/esp200` |
-| Network settings live in `data/network.json` only | On Vercel they reset when the server restarts | Move to a Supabase table |
+| Network settings live in `data/network.json` only | On Vercel they reset when the server restarts | Move into the database (or drop: cloud boards don't need them) |
 | ESP32 HTTP API has no authentication | Anyone on the same Wi-Fi can switch relays | Acceptable at home; cloud mode adds per-device credentials |
 | 6 pre-existing lint errors | None at runtime (setState in effects, one `prefer-const`, one `any`) | Clean up when touching those files |
 | Legacy unused components (`Header`, `SummaryCards`, `DeviceGrid`, `RoomFilter`, `SearchBar`) | Dead code | Delete in a cleanup pass |

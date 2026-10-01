@@ -17,7 +17,8 @@
 | Board offline in Settings → Network | No power, no Wi-Fi, or the Wi-Fi has no internet | `curl http://<IP>/status`: `"cloud"` shows `no wifi`, `sign-in failed`, `join refused` or `online` |
 | `"cloud":"sign-in failed"` | Wrong or reset board password | `node scripts/board-login.mjs <board> --secrets firmware/<board>/secrets.h`, then flash again |
 | Tap works but the tile flips back after ~15 s | The board switched but its report failed | Check the board's check-ins; see `"cloud"` in `/status` |
-| "Cloud boards aren't set up yet" | `add_cloud_boards.sql` not run | Run it in the SQL editor |
+| "Cloud boards aren't set up yet" | `four_tables.sql` not run | Run it in the SQL editor |
+| Timer: "hasn't confirmed yet" | The board got it but its report is slow or failed | Wait a few seconds and reopen; check `"acks"` in `/status` |
 | Pi upload: "port is busy" | Arduino Serial Monitor open on the Pi | Close it, then upload |
 | Board joins no Wi-Fi after flashing | Wrong Wi-Fi password in `secrets.h` | Compare with the working sketch; ESP201's Airtel password was wrong in the imported copy (fixed 2026-09-30) |
 
@@ -37,8 +38,7 @@
 |---|---|---|
 | "Sign-in isn't configured on the server" | `SESSION_SECRET` missing | Add it to `.env.local` / Vercel, then redeploy |
 | Everyone gets "Invalid username or password" on one server | RLS is on but `SUPABASE_SERVICE_ROLE_KEY` is missing there | Add the key and redeploy |
-| Create User can't make an admin | Users table has no `role` column | Run `supabase/add_user_role.sql` |
-| A user's devices disappear later | Access table missing, so saves went to a temporary file | Run `supabase/add_device_access.sql`, grant again, tap **Save** (it now confirms by reading back) |
+| A user's switches won't save | `access` table missing | Run `supabase/four_tables.sql`, grant again, tap **Save** (it confirms by reading back) |
 | A user sees an empty home | No devices granted (the default) | Settings → Users → switch devices on → Save |
 
 ## Sync between phones
