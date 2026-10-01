@@ -54,6 +54,20 @@ const liveState = new Map<string, LiveState>();
 const timerRecords = new Map<string, DeviceTimerConfig[]>();
 let lastGood: Device[] | null = null;
 
+// One request reads the switch list several times; share a read for a moment.
+const SHARE_MS = 1000;
+let shared: { at: number; promise: Promise<Device[]> } | null = null;
+
+/** Next getDevices() reads the database again (call after any write). */
+export function invalidateDevices() {
+  shared = null;
+}
+
+/** Timers this server knows were scheduled on a switch (memory only). */
+export function timerNotes(deviceId: string): DeviceTimerConfig[] {
+  return timerRecords.get(deviceId) ?? [];
+}
+
 function toDevice(row: SwitchRow, boards: Map<string, BoardState>): Device {
   const relay = row.relay || 1;
   const live = liveState.get(row.id);
@@ -98,6 +112,13 @@ function toRow(d: Pick<Device, "id" | "name" | "room" | "type" | "relay" | "ip">
 }
 
 export async function getDevices(): Promise<Device[]> {
+  if (shared && Date.now() - shared.at < SHARE_MS) return shared.promise;
+  const promise = readDevices();
+  shared = { at: Date.now(), promise };
+  return promise;
+}
+
+async function readDevices(): Promise<Device[]> {
   try {
     const [{ data, error }, boards] = await Promise.all([
       supabase.from(SWITCH_TABLE).select("*").order("created_at", { ascending: true }),
@@ -136,6 +157,7 @@ export async function addDevice(
   }
 
   const { error } = await supabase.from(SWITCH_TABLE).insert(toRow({ ...newDeviceData, id: uniqueId }));
+  invalidateDevices();
   if (error) throw new Error(error.code === "23505" ? "That board already has a switch on this relay." : error.message);
 
   liveState.set(uniqueId, {
@@ -159,6 +181,7 @@ export async function updateDevice(id: string, updates: Partial<Device>): Promis
 
   if (STORED_FIELDS.some((f) => f in updates && updates[f] !== current[f])) {
     const { error } = await supabase.from(SWITCH_TABLE).update(toRow(merged)).eq("id", id);
+    invalidateDevices();
     if (error) throw new Error(error.code === "23505" ? "That board already has a switch on this relay." : error.message);
   }
 
@@ -168,11 +191,13 @@ export async function updateDevice(id: string, updates: Partial<Device>): Promis
   if ("timers" in updates) timerRecords.set(id, updates.timers ?? []);
 
   if (lastGood) lastGood = lastGood.map((d) => (d.id === id ? merged : d));
+  if (shared) shared = { at: shared.at, promise: Promise.resolve(lastGood ?? [merged]) };
   return merged;
 }
 
 export async function deleteDevice(id: string): Promise<boolean> {
   const { data, error } = await supabase.from(SWITCH_TABLE).delete().eq("id", id).select("id");
+  invalidateDevices();
   if (error) throw new Error(error.message);
   liveState.delete(id);
   timerRecords.delete(id);
@@ -189,6 +214,7 @@ export async function resetDevicesToDefault(): Promise<Device[]> {
 
 export async function clearAllDevices(): Promise<Device[]> {
   const { error } = await supabase.from(SWITCH_TABLE).delete().neq("id", "");
+  invalidateDevices();
   if (error) throw new Error(error.message);
   liveState.clear();
   timerRecords.clear();

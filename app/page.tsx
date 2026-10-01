@@ -20,8 +20,10 @@ import { easeApple, springs } from "@/lib/deviceTheme";
 import { Plus, Settings, Search, X, House, User, LogOut } from "lucide-react";
 
 /** How long a just-flipped switch ignores older server data (live sync). */
-function pendingDeadline() {
-  return Date.now() + 5000;
+/** How long a tapped switch keeps its new state before server reads count again. */
+function pendingDeadline(cloud: boolean) {
+  // A cloud board confirms in 2–4 s.
+  return Date.now() + (cloud ? 8000 : 5000);
 }
 
 export default function HomeControlPage() {
@@ -223,7 +225,8 @@ export default function HomeControlPage() {
     if (!targetDevice) return;
 
     const nextState: PowerState = currentPower === "on" ? "off" : "on";
-    pendingUntil.current[deviceId] = pendingDeadline();
+    const cloud = !!targetDevice.boardId;
+    pendingUntil.current[deviceId] = pendingDeadline(cloud);
 
     updateDevicesState((prev) =>
       prev.map((d) =>
@@ -250,15 +253,20 @@ export default function HomeControlPage() {
     })
       .then(async (res) => {
         const result = (await res.json().catch(() => null)) as DeviceControlResponse | null;
-        if (result && result.success === false && result.modeUsed === "cloud") {
+        if (result && result.success === false) {
+          // Nothing switched: put the tile back and say why.
           pendingUntil.current[deviceId] = 0;
+          updateDevicesState((prev) =>
+            prev.map((d) => (d.id === deviceId ? { ...d, powerState: currentPower, connectionState: result.connectionState } : d))
+          );
           showToast("error", `${targetDevice.name} didn't switch`, result.message);
+          return;
         }
+        // Re-read once the device has had time to act (a cloud board
+        // confirms in 2–4 s). Manual ON/OFF never cancels timers.
+        setTimeout(() => void refreshStatus(deviceId, true), cloud ? 3500 : 800);
       })
-      .catch(() => {})
-      // Re-read the ESP32 so power + timers reflect what it actually did.
-      // Manual ON/OFF never cancels timers.
-      .finally(() => setTimeout(() => void refreshStatus(deviceId), 800));
+      .catch(() => {});
   };
 
   // ESP32 status + timers. Each ESP32's /status is the source of truth for its
@@ -276,10 +284,12 @@ export default function HomeControlPage() {
   const ONLINE_SYNC_MS = 10_000;
 
   const refreshStatus = useCallback(
-    async (deviceId: string) => {
+    async (deviceId: string, afterTap = false) => {
       const device = devicesRef.current.find((d) => d.id === deviceId);
       if (!device) return;
       const status = await fetchDeviceStatus(device, networkConfig?.mode);
+      // A background read must not undo a switch tapped moments ago.
+      const holding = !afterTap && (pendingUntil.current[deviceId] ?? 0) > Date.now();
 
       const plan = syncPlan.current[deviceId] ?? { nextAt: 0, failures: 0 };
       plan.failures = status.reachable ? 0 : plan.failures + 1;
@@ -307,7 +317,7 @@ export default function HomeControlPage() {
             ? {
                 ...d,
                 ...(status.reachable
-                  ? { powerState: status.power ?? d.powerState, connectionState: "connected" as const }
+                  ? { powerState: holding ? d.powerState : status.power ?? d.powerState, connectionState: "connected" as const }
                   : { connectionState: "offline" as const }),
                 ...(status.savedTimers ? { timers: status.savedTimers } : {}),
               }

@@ -1,4 +1,4 @@
-import { getDeviceById, updateDevice, addTimerRecord, closeTimerRecords, reconcileTimerRecords } from "./deviceStore";
+import { getDeviceById, updateDevice, addTimerRecord, closeTimerRecords, reconcileTimerRecords, invalidateDevices, timerNotes } from "./deviceStore";
 import { parseTimerEntry, parseTimers, powerForRelay, reasonFromStatus, timerErrorMessage, timerModeOf } from "./timerParse";
 import { getNetworkConfig } from "./networkStore";
 import { BoardCommand, BoardSetupError, getBoardState, pushBoardCommand, setBoardRelay, waitForBoardAck } from "./boardStore";
@@ -89,20 +89,17 @@ export async function executeDeviceControl(
       const isAbort = err instanceof Error && err.name === "AbortError";
       const errorDetail = isAbort ? "Connection timed out" : (err as Error)?.message || "Network unreachable";
 
-      // Fallback update to keep local prototype responsive even without physical ESP32 connected
-      const updated = await updateDevice(device.id, {
-        powerState: nextPowerState,
-        connectionState: "offline",
-      });
+      // Not reached: nothing switched, so keep the last known state.
+      await updateDevice(device.id, { connectionState: "offline" });
 
       return {
-        success: true,
+        success: false,
         deviceId: device.id,
-        powerState: updated?.powerState || nextPowerState,
+        powerState: device.powerState,
         connectionState: "offline",
         modeUsed: "direct",
         targetUrl,
-        message: `${device.name} state updated to ${nextPowerState.toUpperCase()} (Target: ${targetUrl} [${errorDetail}]).`,
+        message: `${device.name} can't be reached from here (${errorDetail}). It only works on its own Wi-Fi until it's on the cloud.`,
         timestamp,
         simulated: true,
       };
@@ -189,10 +186,11 @@ async function controlViaBoard(device: Device, power: "on" | "off"): Promise<Dev
   const targetUrl = `cloud:${boardId}/relay/${device.relay || 1}`;
   try {
     const found = await setBoardRelay(boardId, device.relay || 1, power);
+    invalidateDevices();
     if (!found) throw new Error(`Board "${boardId}" doesn't exist. Check the device's Board setting.`);
-    const online = (await getBoardState(boardId))?.online ?? false;
+    // The switch list already carries the board's online state.
+    const online = device.connectionState === "connected";
     const connectionState: ConnectionState = online ? "connected" : "offline";
-    await updateDevice(device.id, { powerState: power, connectionState });
     return {
       success: true,
       deviceId: device.id,
@@ -520,17 +518,39 @@ async function boardStatus(device: Device, fetchedAt: string): Promise<DeviceSta
     message = err instanceof BoardSetupError ? err.message : undefined;
   }
   if (!state?.online || !state.report) {
-    if (device.connectionState !== "offline") await updateDevice(device.id, { connectionState: "offline" });
     return {
       success: true,
       deviceId: device.id,
       reachable: false,
-      savedTimers: device.timers ?? [],
+      savedTimers: timerNotes(device.id),
       fetchedAt,
       message: message ?? timerErrorMessage("offline", device.name),
     };
   }
-  return applyDeviceReport(device.id, { timers: parseTimers(state.report) ?? [], raw: state.report, fetchedAt });
+
+  // Power and online state live on the board's row, so nothing is written
+  // here: just shape the report for this relay.
+  const raw = state.report;
+  const relay = device.relay || 1;
+  const timers = (parseTimers(raw) ?? []).filter((t) => t.relay === relay);
+  await reconcileTimerRecords(device.id, timers);
+  return {
+    success: true,
+    deviceId: device.id,
+    reachable: true,
+    power: powerForRelay(raw, relay),
+    timers,
+    timerMode: timerModeOf(raw),
+    timerCount: timers.length,
+    relay,
+    ip: typeof raw.ip === "string" ? raw.ip : undefined,
+    ssid: typeof raw.ssid === "string" ? raw.ssid : undefined,
+    espDevice: typeof raw.device === "string" ? raw.device : undefined,
+    uptime: typeof raw.uptime === "number" ? raw.uptime : undefined,
+    rssi: typeof raw.rssi === "number" ? raw.rssi : undefined,
+    savedTimers: timerNotes(device.id),
+    fetchedAt,
+  };
 }
 
 /**
