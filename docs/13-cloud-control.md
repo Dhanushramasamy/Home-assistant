@@ -22,6 +22,8 @@ The app never reaches the ESP32. Both talk to Supabase.
 - The ESP32 opens the connection from inside the network, so the router lets the replies back in, the same way WhatsApp works.
 - Supabase sends a change down that open connection about 0.6 s after it's saved (measured).
 - Measured on the live site (2026-10-01): the server answers a tap in about 0.6 s, the relay switches about 1.3 s after the tap, and every phone shows it about 1.2 s after.
+- The board's own report confirms 2–3 s after a tap, because each report opens a new TLS connection (about 2 s on the ESP32). Reusing one kept-open HTTPS connection was tried and hangs on the second request inside the ESP32 TLS library, so the firmware keeps one connection per report.
+- So the app's loader stops as soon as the server has saved the tap and the board is online (about 0.6 s), and checks the board's report in the background. Only if the board reports something else does the switch go back, with a message.
 - The app's server runs in Sydney (`vercel.json` → `regions: ["syd1"]`), next to the Supabase database (AWS ap-southeast-2). In Washington every query crossed the Pacific, which made each tap take several seconds.
 
 ## Database

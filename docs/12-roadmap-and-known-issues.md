@@ -11,7 +11,7 @@
 
 ### Faster cloud confirmation
 
-- Reuse one HTTPS connection for the board's reports, bringing confirmation from 2–4 s down to under 1 s.
+- The board's report takes 2–3 s (a new TLS connection each time). Reusing one connection hung on the ESP32 (2026-10-01). Options: retry with a newer ESP32 core or a different HTTP client, or move Supabase and Vercel to Mumbai (shorter trips from India).
 
 ### Network prefix button (admin)
 
