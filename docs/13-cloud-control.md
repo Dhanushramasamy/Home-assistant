@@ -21,7 +21,8 @@ The app never reaches the ESP32. Both talk to Supabase.
 
 - The ESP32 opens the connection from inside the network, so the router lets the replies back in, the same way WhatsApp works.
 - Supabase sends a change down that open connection about 0.6 s after it's saved (measured).
-- Confirmed state reaches the app 2–4 s after a tap, because each report opens a new HTTPS connection on the ESP32. Until then the app keeps showing what was tapped.
+- Measured on the live site (2026-10-01): the server answers a tap in about 0.6 s, the relay switches about 1.3 s after the tap, and every phone shows it about 1.2 s after.
+- The app's server runs in Sydney (`vercel.json` → `regions: ["syd1"]`), next to the Supabase database (AWS ap-southeast-2). In Washington every query crossed the Pacific, which made each tap take several seconds.
 
 ## Database
 
@@ -81,9 +82,11 @@ The SQL also:
 
 `firmware/esp201/cloud.h` does all the cloud work; the sketch only includes it and calls `cloudBegin()` and `cloudLoop()`.
 
+All internet work runs in its **own task on CPU core 0**, while the sketch's web server, timers and relays run on core 1. A slow or stuck connection (an ESP32 TLS handshake can wait up to the 120 s default) never freezes the board. The two sides only swap small messages under a lock: the cloud task passes on relays to switch and timer commands; the main loop passes back a fresh `/status` to report.
+
 1. **Boot:** restores each relay's last state from flash (power-cut restore), then connects to Wi-Fi and gets the time (NTP).
 2. **Sign in:** `POST /auth/v1/token` with the board's email and password, then refreshes the token 5 minutes before its 1-hour expiry.
-3. **Listen:** opens `wss://<project>.supabase.co/realtime/v1/websocket` and joins `realtime:board-esp201` for `UPDATE`s on its own row. It sends a heartbeat every 25 s, and reconnects and re-joins by itself.
+3. **Listen:** opens `wss://<project>.supabase.co/realtime/v1/websocket` and joins `realtime:board-esp201` for `UPDATE`s on its own row. It sends a heartbeat every 25 s, and reconnects and re-joins by itself. When it re-joins, Supabase closes the previous copy of the channel (`phx_close` with the old join's `ref`); the board ignores that, because treating it as its own channel closing caused an endless re-join every 15 s that missed taps (fixed 2026-10-01).
 4. **Catch up:** after joining, and again on "Subscribed to PostgreSQL", it reads `desired` once (`GET /rest/v1/...`), so taps made while it was offline still happen.
 5. **Report:** `PATCH`es its row with `/status` after every relay or timer change, and at least every 60 s (the check-in).
 6. **Local changes** (direct `/on`, a timer firing, later a wall switch) also update `desired`, so the app doesn't switch the relay back. If a local change happened while offline, it wins over the app on reconnect.

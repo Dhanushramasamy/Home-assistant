@@ -12,6 +12,12 @@
 //   relay change -> this board writes row.reported (its /status JSON)
 //   every 60 s   -> check-in (row.last_seen), so the app knows it's online
 //
+// All internet work runs in its own task on the other CPU core, so a slow or
+// stuck connection never freezes the web server, timers or relays. The two
+// sides only exchange small messages under a lock:
+//   cloud task -> main loop : relays to switch, timer commands to run
+//   main loop  -> cloud task: a fresh /status snapshot to report
+//
 // Relays restore their last state after a power cut (saved in flash), then
 // follow the app once the board is back online.
 //
@@ -19,12 +25,11 @@
 //   #define CLOUD_RELAYS <n>
 //   void setRelay(uint8_t relay, bool on)   (calls cloudRelayChanged)
 //   bool getRelayState(uint8_t relay)
-//   String getStatusJSON()
+//   String getStatusJSON()                  (includes cloudAcksJSON() as "acks")
 //   uint32_t cloudTimerSignature()          (changes when timers change)
 //   uint32_t createTimer(relay, actionOn, seconds, repeat, &error)  (0 = failed)
 //   bool cancelTimerById(uint32_t id)
 //   int cancelTimersOnRelay(uint8_t relay)
-// and puts cloudAcksJSON() into getStatusJSON() as "acks".
 // and secrets.h: SUPABASE_HOST, SUPABASE_KEY, BOARD_ID, BOARD_EMAIL,
 // BOARD_PASSWORD (scripts/board-login.mjs writes them).
 //
@@ -157,48 +162,63 @@ HMUfpIBvFSDJ3gyICh3WZlXi/EjJKSZp4A==
 
 #define CLOUD_TABLE "boards"
 
-const unsigned long CLOUD_CHECKIN_MS = 60000;   // check-in / full report
-const unsigned long CLOUD_HEARTBEAT_MS = 25000; // Realtime needs one < 60 s
+const unsigned long CLOUD_CHECKIN_MS = 60000;      // check-in / full report
+const unsigned long CLOUD_HEARTBEAT_MS = 25000;    // Realtime needs one < 60 s
 const unsigned long CLOUD_RETRY_MS = 15000;
 const unsigned long CLOUD_TOKEN_MARGIN_MS = 300000; // refresh 5 min early
+const unsigned long CLOUD_SNAPSHOT_MS = 10000;     // main loop refreshes /status for the task
+const unsigned long CLOUD_COMMAND_MAX_AGE_S = 300; // ignore older commands
+const uint16_t CLOUD_TLS_HANDSHAKE_S = 10;
 
-WebSocketsClient cloudWs;
+// Shown in /status as "cloud". Always points at a fixed text, so either
+// side can read it safely.
+const char* volatile cloudState = "starting";
+
 Preferences cloudPrefs;
+SemaphoreHandle_t cloudLock = nullptr;
 
-String cloudAccessToken;
-String cloudRefreshToken;
-unsigned long cloudTokenAt = 0;
-unsigned long cloudTokenLifeMs = 0;
-unsigned long cloudNextSignInAt = 0;
 
-bool cloudWsStarted = false;
-bool cloudJoined = false;
-unsigned long cloudLastJoin = 0;
-unsigned long cloudLastHeartbeat = 0;
-uint32_t cloudRef = 1;
-uint32_t cloudJoinRef = 0;
+// ------------------------------------------------------------
+// SHARED BETWEEN THE TWO SIDES (only touched while holding cloudLock)
+// ------------------------------------------------------------
+
+// Cloud task -> main loop.
+int8_t cloudWant[CLOUD_RELAYS + 1];   // -1 nothing, 0 off, 1 on
+
+struct CloudCommand {
+  uint32_t seq;
+  char op[13];
+  uint8_t relay;
+  bool actionOn;
+  bool actionValid;
+  uint32_t seconds;
+  bool repeat;
+  uint32_t id;
+  bool expired;
+};
+
+#define CLOUD_QUEUE 10
+CloudCommand cloudQueue[CLOUD_QUEUE];
+int cloudQueueCount = 0;
+
+// Main loop -> cloud task.
+String cloudSnapStatus;
+String cloudSnapDesired;      // {"1":"on"} when a local change must reach the app
+bool cloudSnapHasDesired = false;
+uint32_t cloudSnapVersion = 0;
+bool cloudSnapUrgent = false; // something changed: report now, not at the next check-in
+
+
+// ------------------------------------------------------------
+// MAIN LOOP SIDE
+// ------------------------------------------------------------
 
 bool cloudApplying = false;   // switching because the app asked
 bool cloudRestoring = false;  // switching back after a power cut
 bool cloudReportDue = true;
 bool cloudDesiredDue = false; // a local change the app hasn't heard about
-bool cloudFetchDue = false;
-unsigned long cloudLastReport = 0;
-unsigned long cloudNextReportTry = 0;
-unsigned long cloudNextFetchAt = 0;
+unsigned long cloudLastSnapshot = 0;
 uint32_t cloudLastTimerSig = 0;
-
-bool cloudTimeReady = false;
-unsigned long cloudTimeWaitStart = 0;
-
-// Shown in /status as "cloud".
-String cloudState = "starting";
-
-// Timer commands: the last one run (saved in flash, so a restart doesn't run
-// old ones again) and the results of the last few, reported as "acks".
-uint32_t cloudLastSeq = 0;
-bool cloudSeqKnown = false;
-const unsigned long CLOUD_COMMAND_MAX_AGE_S = 300;  // ignore older commands
 
 struct CloudAck {
   uint32_t seq;
@@ -210,11 +230,6 @@ struct CloudAck {
 #define CLOUD_ACKS 5
 CloudAck cloudAcks[CLOUD_ACKS];
 int cloudAckCount = 0;
-
-
-// ------------------------------------------------------------
-// RELAYS
-// ------------------------------------------------------------
 
 // Called by setRelay whenever a relay actually changes.
 void cloudRelayChanged(uint8_t relay, bool on) {
@@ -232,33 +247,6 @@ void cloudRelayChanged(uint8_t relay, bool on) {
     cloudDesiredDue = true;
   }
 }
-
-void cloudApplyDesired(JsonObjectConst desired) {
-
-  cloudApplying = true;
-
-  for (uint8_t r = 1; r <= CLOUD_RELAYS; r++) {
-
-    const char* power = desired[String(r)] | "";
-    bool want;
-
-    if (strcmp(power, "on") == 0) want = true;
-    else if (strcmp(power, "off") == 0) want = false;
-    else continue;
-
-    if (want != getRelayState(r)) {
-      Serial.printf("[cloud] app: relay %u %s\n", r, want ? "ON" : "OFF");
-      setRelay(r, want);
-    }
-  }
-
-  cloudApplying = false;
-}
-
-
-// ------------------------------------------------------------
-// TIMER COMMANDS
-// ------------------------------------------------------------
 
 String cloudAcksJSON() {
 
@@ -287,58 +275,89 @@ void cloudAddAck(uint32_t seq, bool ok, uint32_t id, const char* error) {
   cloudReportDue = true;
 }
 
-void cloudRunCommand(JsonObjectConst c, uint32_t seq) {
+void cloudRunCommand(const CloudCommand &c) {
 
-  const char* op = c["op"] | "";
-
-  // Too old: the app has already told the user it failed.
-  long at = c["at"] | 0L;
-  time_t now = time(nullptr);
-  if (now > 1700000000 && at > 0 && now - at > (long)CLOUD_COMMAND_MAX_AGE_S) {
-    cloudAddAck(seq, false, 0, "expired");
+  if (c.expired) {
+    cloudAddAck(c.seq, false, 0, "expired");
     return;
   }
 
-  if (strcmp(op, "timer") == 0) {
+  if (strcmp(c.op, "timer") == 0) {
 
-    const char* action = c["action"] | "";
     const char* error = "invalid";
-    uint32_t id = 0;
+    uint32_t id = c.actionValid ? createTimer(c.relay, c.actionOn, c.seconds, c.repeat, &error) : 0;
+    Serial.printf("[cloud] app: timer relay %u %s in %lus -> %s\n",
+      c.relay, c.actionOn ? "on" : "off", (unsigned long)c.seconds, id ? "ok" : error);
+    cloudAddAck(c.seq, id != 0, id, error);
 
-    if (strcmp(action, "on") == 0 || strcmp(action, "off") == 0) {
-      id = createTimer(
-        c["relay"] | 0,
-        strcmp(action, "on") == 0,
-        c["seconds"] | 0UL,
-        c["repeat"] | false,
-        &error
-      );
-    }
+  } else if (strcmp(c.op, "cancel") == 0) {
 
-    Serial.printf("[cloud] app: timer relay %d %s in %lus -> %s\n",
-      (int)(c["relay"] | 0), action, (unsigned long)(c["seconds"] | 0UL), id ? "ok" : error);
-    cloudAddAck(seq, id != 0, id, error);
+    bool found = cancelTimerById(c.id);
+    Serial.printf("[cloud] app: cancel timer %lu -> %s\n", (unsigned long)c.id, found ? "ok" : "not found");
+    cloudAddAck(c.seq, found, c.id, "not_found");
 
-  } else if (strcmp(op, "cancel") == 0) {
+  } else if (strcmp(c.op, "cancel_relay") == 0) {
 
-    bool found = cancelTimerById(c["id"] | 0UL);
-    Serial.printf("[cloud] app: cancel timer %lu -> %s\n", (unsigned long)(c["id"] | 0UL), found ? "ok" : "not found");
-    cloudAddAck(seq, found, c["id"] | 0UL, "not_found");
-
-  } else if (strcmp(op, "cancel_relay") == 0) {
-
-    int n = cancelTimersOnRelay(c["relay"] | 0);
-    Serial.printf("[cloud] app: cancel timers on relay %d -> %d\n", (int)(c["relay"] | 0), n);
-    cloudAddAck(seq, n >= 0, n < 0 ? 0 : n, "invalid");
+    int n = cancelTimersOnRelay(c.relay);
+    Serial.printf("[cloud] app: cancel timers on relay %u -> %d\n", c.relay, n);
+    cloudAddAck(c.seq, n >= 0, n < 0 ? 0 : n, "invalid");
 
   } else {
 
-    cloudAddAck(seq, false, 0, "invalid");
+    cloudAddAck(c.seq, false, 0, "invalid");
   }
 }
 
-// Runs every command newer than the last one run, once.
-void cloudRunCommands(JsonArrayConst commands) {
+
+// ------------------------------------------------------------
+// CLOUD TASK SIDE
+// ------------------------------------------------------------
+
+WebSocketsClient cloudWs;
+
+String cloudAccessToken;
+String cloudRefreshToken;
+unsigned long cloudTokenAt = 0;
+unsigned long cloudTokenLifeMs = 0;
+unsigned long cloudNextSignInAt = 0;
+
+bool cloudWsStarted = false;
+bool cloudJoined = false;
+unsigned long cloudLastJoin = 0;
+unsigned long cloudLastHeartbeat = 0;
+uint32_t cloudRef = 1;
+uint32_t cloudJoinRef = 0;
+
+bool cloudFetchDue = false;
+unsigned long cloudNextFetchAt = 0;
+unsigned long cloudLastReport = 0;
+unsigned long cloudNextReportTry = 0;
+uint32_t cloudSentVersion = 0;
+
+bool cloudTimeReady = false;
+unsigned long cloudTimeWaitStart = 0;
+
+// Timer commands: the last one taken (saved in flash, so a restart doesn't
+// run old ones again).
+uint32_t cloudLastSeq = 0;
+bool cloudSeqKnown = false;
+
+// What the app wants for the relays -> main loop.
+void cloudQueueDesired(JsonObjectConst desired) {
+
+  xSemaphoreTake(cloudLock, portMAX_DELAY);
+
+  for (uint8_t r = 1; r <= CLOUD_RELAYS; r++) {
+    const char* power = desired[String(r)] | "";
+    if (strcmp(power, "on") == 0) cloudWant[r] = 1;
+    else if (strcmp(power, "off") == 0) cloudWant[r] = 0;
+  }
+
+  xSemaphoreGive(cloudLock);
+}
+
+// New timer commands -> main loop, each once.
+void cloudQueueCommands(JsonArrayConst commands) {
 
   if (commands.isNull()) return;
 
@@ -353,26 +372,45 @@ void cloudRunCommands(JsonArrayConst commands) {
     return;
   }
 
+  time_t now = time(nullptr);
+
   for (JsonObjectConst c : commands) {
 
     uint32_t seq = c["seq"] | 0UL;
     if (seq <= cloudLastSeq) continue;
 
+    CloudCommand cmd = {};
+    cmd.seq = seq;
+    strlcpy(cmd.op, c["op"] | "", sizeof(cmd.op));
+    cmd.relay = c["relay"] | 0;
+    const char* action = c["action"] | "";
+    cmd.actionValid = strcmp(action, "on") == 0 || strcmp(action, "off") == 0;
+    cmd.actionOn = strcmp(action, "on") == 0;
+    cmd.seconds = c["seconds"] | 0UL;
+    cmd.repeat = c["repeat"] | false;
+    cmd.id = c["id"] | 0UL;
+
+    // Too old: the app has already told the user it failed.
+    long at = c["at"] | 0L;
+    cmd.expired = now > 1700000000 && at > 0 && now - at > (long)CLOUD_COMMAND_MAX_AGE_S;
+
+    xSemaphoreTake(cloudLock, portMAX_DELAY);
+    bool queued = cloudQueueCount < CLOUD_QUEUE;
+    if (queued) cloudQueue[cloudQueueCount++] = cmd;
+    xSemaphoreGive(cloudLock);
+
+    if (!queued) break;  // full: the rest is picked up on the next change or read
+
     cloudLastSeq = seq;
     cloudPrefs.putUInt("seq", seq);
-    cloudRunCommand(c, seq);
   }
 }
-
-
-// ------------------------------------------------------------
-// HTTPS (sign-in and REST)
-// ------------------------------------------------------------
 
 int cloudHttp(const char* method, const String& path, const String& body, String* response, bool withToken) {
 
   WiFiClientSecure client;
   client.setCACert(CLOUD_ROOT_CA);
+  client.setHandshakeTimeout(CLOUD_TLS_HANDSHAKE_S);
 
   HTTPClient http;
   http.setConnectTimeout(8000);
@@ -505,35 +543,50 @@ void cloudFetchDesired() {
     if (doc.as<JsonArrayConst>().size() == 0) {
       Serial.println("[cloud] no row for this board (not linked?)");
     } else {
+      // A local change made while offline wins; the next report sends it.
+      xSemaphoreTake(cloudLock, portMAX_DELAY);
+      bool localPending = cloudSnapHasDesired;
+      xSemaphoreGive(cloudLock);
+
       JsonObjectConst desired = doc[0]["desired"];
-      if (!desired.isNull()) cloudApplyDesired(desired);
-      cloudRunCommands(doc[0]["commands"]);
+      if (!desired.isNull() && !localPending) cloudQueueDesired(desired);
+      cloudQueueCommands(doc[0]["commands"]);
     }
   }
 
   cloudFetchDue = false;
 }
 
-// Writes /status to the board's row. Doubles as the check-in.
+// Writes the main loop's latest /status to the board's row. Doubles as the
+// check-in.
 bool cloudReport() {
 
-  JsonDocument doc;
-  doc["reported"] = serialized(getStatusJSON());
-  doc["ip"] = WiFi.localIP().toString();
-  doc["ssid"] = WiFi.SSID();
-  doc["rssi"] = WiFi.RSSI();
+  xSemaphoreTake(cloudLock, portMAX_DELAY);
+  String status = cloudSnapStatus;
+  bool withDesired = cloudSnapHasDesired;
+  String desired = cloudSnapDesired;
+  uint32_t version = cloudSnapVersion;
+  xSemaphoreGive(cloudLock);
 
-  bool sendingDesired = cloudDesiredDue;
-
-  if (sendingDesired) {
-    JsonObject desired = doc["desired"].to<JsonObject>();
-    for (uint8_t r = 1; r <= CLOUD_RELAYS; r++) {
-      desired[String(r)] = getRelayState(r) ? "on" : "off";
-    }
+  if (status.length() == 0) {
+    return false;  // main loop hasn't made one yet
   }
 
-  String body;
-  serializeJson(doc, body);
+  String body = "{\"reported\":" + status;
+  body += ",\"ip\":\"" + WiFi.localIP().toString() + "\"";
+  body += ",\"rssi\":" + String(WiFi.RSSI());
+
+  JsonDocument ssid;
+  ssid.set(WiFi.SSID());
+  String ssidJson;
+  serializeJson(ssid, ssidJson);
+  body += ",\"ssid\":" + ssidJson;
+
+  if (withDesired) {
+    body += ",\"desired\":" + desired;
+  }
+
+  body += "}";
 
   int code = cloudHttp(
     "PATCH",
@@ -552,16 +605,17 @@ bool cloudReport() {
     return false;
   }
 
-  cloudReportDue = false;
-  if (sendingDesired) cloudDesiredDue = false;
+  xSemaphoreTake(cloudLock, portMAX_DELAY);
+  if (cloudSnapVersion == version) {
+    cloudSnapUrgent = false;
+    if (withDesired) cloudSnapHasDesired = false;
+  }
+  xSemaphoreGive(cloudLock);
+
+  cloudSentVersion = version;
   cloudLastReport = millis();
   return true;
 }
-
-
-// ------------------------------------------------------------
-// REALTIME (WebSocket, Phoenix protocol)
-// ------------------------------------------------------------
 
 void cloudJoin() {
 
@@ -637,8 +691,8 @@ void cloudOnMessage(const uint8_t* payload, size_t length) {
   } else if (strcmp(event, "postgres_changes") == 0) {
 
     JsonObjectConst desired = doc["payload"]["data"]["record"]["desired"];
-    if (!desired.isNull()) cloudApplyDesired(desired);
-    cloudRunCommands(doc["payload"]["data"]["record"]["commands"]);
+    if (!desired.isNull()) cloudQueueDesired(desired);
+    cloudQueueCommands(doc["payload"]["data"]["record"]["commands"]);
 
   } else if (strcmp(event, "system") == 0) {
 
@@ -654,6 +708,13 @@ void cloudOnMessage(const uint8_t* payload, size_t length) {
 
   } else if (strcmp(event, "phx_error") == 0 || strcmp(event, "phx_close") == 0) {
 
+    // Re-joining makes Supabase close the previous copy of the channel
+    // (its ref is the old join's). Only our current channel matters.
+    if (String(cloudJoinRef) != (doc["ref"] | "")) {
+      return;
+    }
+
+    Serial.printf("[cloud] channel %s, rejoining\n", event);
     cloudJoined = false;
     cloudState = "rejoining";
   }
@@ -693,13 +754,93 @@ void cloudSendHeartbeat() {
   cloudWs.sendTXT(out);
 }
 
+// One pass of the cloud task.
+void cloudTaskStep() {
+
+  if (WiFi.status() != WL_CONNECTED) {
+    cloudState = "no wifi";
+    return;
+  }
+
+  unsigned long now = millis();
+
+  // Wait (up to 20 s) for the clock, then go ahead anyway.
+  if (!cloudTimeReady) {
+    if (cloudTimeWaitStart == 0) cloudTimeWaitStart = now;
+    if (time(nullptr) < 1700000000 && now - cloudTimeWaitStart < 20000) return;
+    cloudTimeReady = true;
+  }
+
+  bool tokenDue =
+    cloudAccessToken.length() == 0 ||
+    now - cloudTokenAt + CLOUD_TOKEN_MARGIN_MS > cloudTokenLifeMs;
+
+  if (tokenDue && (long)(now - cloudNextSignInAt) >= 0) {
+    if (!cloudSignIn()) {
+      cloudNextSignInAt = millis() + CLOUD_RETRY_MS;
+      if (cloudAccessToken.length() == 0) cloudState = "sign-in failed";
+    }
+  }
+
+  if (cloudAccessToken.length() == 0) {
+    return;
+  }
+
+  if (!cloudWsStarted) {
+    String path = String("/realtime/v1/websocket?apikey=") + SUPABASE_KEY + "&vsn=1.0.0";
+    cloudWs.beginSslWithCA(SUPABASE_HOST, 443, path.c_str(), CLOUD_ROOT_CA, "");
+    cloudWsStarted = true;
+  }
+
+  cloudWs.loop();
+  now = millis();
+
+  if (cloudWs.isConnected()) {
+
+    if (now - cloudLastHeartbeat >= CLOUD_HEARTBEAT_MS) {
+      cloudLastHeartbeat = now;
+      cloudSendHeartbeat();
+    }
+
+    if (!cloudJoined && now - cloudLastJoin >= CLOUD_RETRY_MS) {
+      cloudJoin();
+    }
+  }
+
+  // After (re)joining, catch up on anything the app changed meanwhile.
+  if (cloudFetchDue && (long)(now - cloudNextFetchAt) >= 0) {
+    cloudFetchDesired();
+  }
+
+  xSemaphoreTake(cloudLock, portMAX_DELAY);
+  bool urgent = cloudSnapUrgent;
+  bool fresh = cloudSnapVersion != cloudSentVersion;
+  xSemaphoreGive(cloudLock);
+
+  bool reportDue = (urgent && fresh) || now - cloudLastReport >= CLOUD_CHECKIN_MS || cloudLastReport == 0;
+
+  if (reportDue && (long)(now - cloudNextReportTry) >= 0) {
+    if (!cloudReport()) cloudNextReportTry = millis() + 10000;
+  }
+}
+
+void cloudTask(void*) {
+  for (;;) {
+    cloudTaskStep();
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+}
+
 
 // ------------------------------------------------------------
-// SETUP / LOOP
+// SETUP / LOOP (called from the sketch)
 // ------------------------------------------------------------
 
 // Call in setup() after the relay pins are set, before Wi-Fi.
 void cloudBegin() {
+
+  cloudLock = xSemaphoreCreateMutex();
+  for (uint8_t r = 0; r <= CLOUD_RELAYS; r++) cloudWant[r] = -1;
 
   cloudPrefs.begin("relays", false);
 
@@ -726,59 +867,41 @@ void cloudBegin() {
   cloudWs.enableHeartbeat(30000, 10000, 2);
 
   cloudLastTimerSig = cloudTimerSignature();
+
+  // Internet work on core 0 (with Wi-Fi); the sketch's loop() stays on core 1.
+  xTaskCreatePinnedToCore(cloudTask, "cloud", 16384, nullptr, 1, nullptr, 0);
 }
 
-// Call every loop().
+// Call every loop(): applies what the app asked for and hands the cloud task
+// a fresh /status when something changed (and every 10 s).
 void cloudLoop() {
 
-  if (WiFi.status() != WL_CONNECTED) {
-    cloudState = "no wifi";
-    return;
+  // 1. Take what the cloud task received.
+  int8_t want[CLOUD_RELAYS + 1];
+  CloudCommand commands[CLOUD_QUEUE];
+  int commandCount;
+
+  xSemaphoreTake(cloudLock, portMAX_DELAY);
+  for (uint8_t r = 0; r <= CLOUD_RELAYS; r++) {
+    want[r] = cloudWant[r];
+    cloudWant[r] = -1;
   }
+  commandCount = cloudQueueCount;
+  for (int i = 0; i < commandCount; i++) commands[i] = cloudQueue[i];
+  cloudQueueCount = 0;
+  xSemaphoreGive(cloudLock);
 
-  unsigned long now = millis();
-
-  // Wait (up to 20 s) for the clock, then go ahead anyway.
-  if (!cloudTimeReady) {
-    if (cloudTimeWaitStart == 0) cloudTimeWaitStart = now;
-    if (time(nullptr) < 1700000000 && now - cloudTimeWaitStart < 20000) return;
-    cloudTimeReady = true;
-  }
-
-  bool tokenDue =
-    cloudAccessToken.length() == 0 ||
-    now - cloudTokenAt + CLOUD_TOKEN_MARGIN_MS > cloudTokenLifeMs;
-
-  if (tokenDue && (long)(now - cloudNextSignInAt) >= 0) {
-    if (!cloudSignIn()) {
-      cloudNextSignInAt = now + CLOUD_RETRY_MS;
-      if (cloudAccessToken.length() == 0) cloudState = "sign-in failed";
+  // 2. Act on it.
+  cloudApplying = true;
+  for (uint8_t r = 1; r <= CLOUD_RELAYS; r++) {
+    if (want[r] >= 0 && (want[r] == 1) != getRelayState(r)) {
+      Serial.printf("[cloud] app: relay %u %s\n", r, want[r] ? "ON" : "OFF");
+      setRelay(r, want[r] == 1);
     }
   }
+  cloudApplying = false;
 
-  if (cloudAccessToken.length() == 0) {
-    return;
-  }
-
-  if (!cloudWsStarted) {
-    String path = String("/realtime/v1/websocket?apikey=") + SUPABASE_KEY + "&vsn=1.0.0";
-    cloudWs.beginSslWithCA(SUPABASE_HOST, 443, path.c_str(), CLOUD_ROOT_CA, "");
-    cloudWsStarted = true;
-  }
-
-  cloudWs.loop();
-
-  if (cloudWs.isConnected()) {
-
-    if (now - cloudLastHeartbeat >= CLOUD_HEARTBEAT_MS) {
-      cloudLastHeartbeat = now;
-      cloudSendHeartbeat();
-    }
-
-    if (!cloudJoined && now - cloudLastJoin >= CLOUD_RETRY_MS) {
-      cloudJoin();
-    }
-  }
+  for (int i = 0; i < commandCount; i++) cloudRunCommand(commands[i]);
 
   uint32_t timerSig = cloudTimerSignature();
   if (timerSig != cloudLastTimerSig) {
@@ -786,16 +909,35 @@ void cloudLoop() {
     cloudReportDue = true;
   }
 
-  // After (re)joining, catch up on anything the app changed meanwhile.
-  // A local change made while offline wins; the report below sends it.
-  if (cloudFetchDue && (long)(now - cloudNextFetchAt) >= 0) {
-    if (cloudDesiredDue) cloudFetchDue = false;
-    else cloudFetchDesired();
+  // 3. Hand the cloud task a fresh /status.
+  unsigned long now = millis();
+  if (!cloudReportDue && now - cloudLastSnapshot < CLOUD_SNAPSHOT_MS && cloudLastSnapshot != 0) {
+    return;
   }
 
-  bool reportDue = cloudReportDue || now - cloudLastReport >= CLOUD_CHECKIN_MS || cloudLastReport == 0;
+  String status = getStatusJSON();
+  String desired;
 
-  if (reportDue && (long)(now - cloudNextReportTry) >= 0) {
-    if (!cloudReport()) cloudNextReportTry = now + 10000;
+  if (cloudDesiredDue) {
+    desired = "{";
+    for (uint8_t r = 1; r <= CLOUD_RELAYS; r++) {
+      if (r > 1) desired += ",";
+      desired += "\"" + String(r) + "\":\"" + (getRelayState(r) ? "on" : "off") + "\"";
+    }
+    desired += "}";
   }
+
+  xSemaphoreTake(cloudLock, portMAX_DELAY);
+  cloudSnapStatus = status;
+  if (cloudDesiredDue) {
+    cloudSnapDesired = desired;
+    cloudSnapHasDesired = true;
+  }
+  if (cloudReportDue) cloudSnapUrgent = true;
+  cloudSnapVersion++;
+  xSemaphoreGive(cloudLock);
+
+  cloudDesiredDue = false;
+  cloudReportDue = false;
+  cloudLastSnapshot = now;
 }

@@ -20,6 +20,9 @@
 | "Cloud boards aren't set up yet" | `four_tables.sql` not run | Run it in the SQL editor |
 | Timer: "hasn't confirmed yet" | The board got it but its report is slow or failed | Wait a few seconds and reopen; check `"acks"` in `/status` |
 | Pi upload: "port is busy" | Arduino Serial Monitor open on the Pi | Close it, then upload |
+| App slow, taps take several seconds | Server far from the database | Keep `vercel.json` `regions` = `syd1` (database is in Sydney) |
+| Board answers ping but not `/status`, check-ins stop | Old firmware: cloud work blocked the main loop | Flash the current `firmware/esp201` (cloud work runs on its own core) |
+| Serial log on the Pi | Opening the USB port restarts the board | Expected with this board's auto-reset; read the boot log |
 | Board joins no Wi-Fi after flashing | Wrong Wi-Fi password in `secrets.h` | Compare with the working sketch; ESP201's Airtel password was wrong in the imported copy (fixed 2026-09-30) |
 
 ## Timers
