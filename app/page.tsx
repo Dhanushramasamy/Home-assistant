@@ -19,7 +19,7 @@ import { Backdrop } from "@/components/ui/Backdrop";
 import { easeApple, springs } from "@/lib/deviceTheme";
 import { Plus, Settings, Search, X, House, User, LogOut } from "lucide-react";
 
-/** Longest a tapped cloud switch waits for its board to confirm. */
+/** Longest the app checks that a cloud board really switched. */
 const CONFIRM_TIMEOUT_MS = 12_000;
 
 export default function HomeControlPage() {
@@ -279,7 +279,19 @@ export default function HomeControlPage() {
       return;
     }
 
-    await confirmSwitch(deviceId, nextState, targetDevice.name);
+    // Cloud: the tap is saved and the board is online and listening, so it
+    // switches within about half a second. Stop the loader now; the board's
+    // own report (2–3 s later) is checked in the background.
+    if (result.connectionState === "connected") {
+      setSwitchBusy(deviceId, null);
+      void confirmSwitch(deviceId, nextState, targetDevice.name);
+      return;
+    }
+
+    // Board offline: the switch happens when it's back.
+    setSwitchBusy(deviceId, null);
+    updateDevicesState((prev) => prev.map((d) => (d.id === deviceId ? { ...d, powerState: currentPower } : d)));
+    showToast("warning", `${targetDevice.name} is offline`, result.message);
   };
 
   // ESP32 status + timers. Each ESP32's /status is the source of truth for its
@@ -342,26 +354,28 @@ export default function HomeControlPage() {
     [networkConfig?.mode]
   );
 
-  // Cloud switch: wait until its board reports the tapped state itself
-  // (normally 1–3 s), not just the app's own request.
+  // Cloud switch, after the loader: checks the board's own report. Only if
+  // the board reports something else is the switch put back, with a message.
   const confirmSwitch = async (deviceId: string, target: PowerState, name: string) => {
     const deadline = Date.now() + CONFIRM_TIMEOUT_MS;
     let last: DeviceStatusResponse | undefined;
     while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 900));
+      await new Promise((r) => setTimeout(r, 1500));
+      // Tapped again meanwhile: that tap checks itself.
+      if (busyRef.current[deviceId]) return;
       last = await refreshStatus(deviceId);
-      if (last?.reachable && !last.pending && last.power === target) {
-        setSwitchBusy(deviceId, null);
-        return;
+      if (last?.reachable && !last.pending) {
+        if (last.power === target) return;
+        break;
       }
     }
-    setSwitchBusy(deviceId, null);
     const actual = last?.reachable && !last.pending ? last.power : undefined;
+    if (actual === target) return;
     if (actual) setDevices((prev) => prev.map((d) => (d.id === deviceId ? { ...d, powerState: actual } : d)));
     showToast(
       "warning",
-      `${name} hasn't confirmed`,
-      actual ? `It still reports ${actual.toUpperCase()}.` : "Its board looks offline. It will switch when it's back."
+      `${name} didn't switch`,
+      actual ? `Its board still reports ${actual.toUpperCase()}.` : "Its board hasn't confirmed. Check that it's online."
     );
   };
 
