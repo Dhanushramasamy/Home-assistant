@@ -239,6 +239,69 @@ uint32_t cloudTimerSignature() {
 }
 
 
+// Timer commands from the cloud (cloud.h). Same rules as /timer.
+// Returns the new timer's id, or 0 with *error set.
+uint32_t createTimer(uint8_t relay, bool actionOn, uint32_t seconds, bool repeat, const char** error) {
+
+  if (relay != 1 || seconds < 1 || seconds > 86400) {
+    *error = "invalid";
+    return 0;
+  }
+
+  int slot = findFreeTimer();
+
+  if (slot == -1) {
+    *error = "limit";
+    return 0;
+  }
+
+  TimerData &t = timers[slot];
+  t.active = true;
+  t.id = generateTimerId();
+  t.relay = relay;
+  t.actionOn = actionOn;
+  t.repeat = repeat;
+  t.seconds = seconds;
+  t.durationMs = seconds * 1000UL;
+  t.scheduledAt = millis();
+
+  return t.id;
+}
+
+
+bool cancelTimerById(uint32_t id) {
+
+  int index = findTimerById(id);
+
+  if (index == -1) {
+    return false;
+  }
+
+  clearTimerSlot(index);
+  return true;
+}
+
+
+// Returns how many were cancelled, or -1 for an unknown relay.
+int cancelTimersOnRelay(uint8_t relay) {
+
+  if (relay != 1) {
+    return -1;
+  }
+
+  int cancelled = 0;
+
+  for (int i = 0; i < MAX_TIMERS; i++) {
+    if (timers[i].active && timers[i].relay == relay) {
+      clearTimerSlot(i);
+      cancelled++;
+    }
+  }
+
+  return cancelled;
+}
+
+
 // ============================================================
 // TIMER JSON
 // ============================================================
@@ -357,6 +420,9 @@ String getStatusJSON() {
   json += ",\"cloud\":\"";
   json += cloudState;
   json += "\"";
+
+  json += ",\"acks\":";
+  json += cloudAcksJSON();
 
   json += "}";
 

@@ -1,140 +1,87 @@
-import fs from "fs/promises";
-import path from "path";
-import os from "os";
 import { supabase } from "./supabaseClient";
 
-// Server-only. Which devices each non-admin user may see and control.
-// Admins always have every device. Stored in user_device_access_PRB_home_assistant
-// (supabase/add_device_access.sql). A local file is used only in development;
-// in production (Vercel) the server's disk is temporary, so without the table
-// saving fails with a clear message instead of silently losing the choice.
+// Server-only. Which switches each non-admin user may see and control.
+// Admins always have every switch. Stored in `access` (user_id, switch_id);
+// see supabase/four_tables.sql.
 
-const ACCESS_TABLE = "user_device_access_PRB_home_assistant";
-const USER_TABLE = "user_PRB_home_assistant";
-const IS_VERCEL = process.env.VERCEL === "1" || process.env.NODE_ENV === "production";
-const DATA_DIR = IS_VERCEL ? path.join(os.tmpdir(), "home-control-data") : path.join(process.cwd(), "data");
-const ACCESS_FILE = path.join(DATA_DIR, "device-access.json");
-const FILE_FALLBACK = !IS_VERCEL;
+const ACCESS_TABLE = "access";
+const USER_TABLE = "users";
 export const ACCESS_SETUP_MESSAGE =
-  "Device access isn't set up in the database yet. Run supabase/add_device_access.sql in Supabase, then save again.";
+  "The access table isn't set up yet. Run supabase/four_tables.sql in Supabase, then save again.";
 
-let tableAvailable = true;
-let retryAt = 0;
+type Role = "admin" | "user";
 
-function tableUsable() {
-  if (!tableAvailable && Date.now() >= retryAt) tableAvailable = true;
-  return tableAvailable;
-}
-function markMissing(message: string) {
-  tableAvailable = false;
-  retryAt = Date.now() + 30_000;
-  console.warn("Device access table not available, using local file:", message);
+async function userIdOf(username: string): Promise<string | null> {
+  const { data } = await supabase.from(USER_TABLE).select("id").ilike("username", username.trim()).maybeSingle();
+  return (data?.id as string | undefined) ?? null;
 }
 
-async function readFileAccess(): Promise<Record<string, string[]>> {
-  try {
-    return JSON.parse(await fs.readFile(ACCESS_FILE, "utf-8")) as Record<string, string[]>;
-  } catch {
-    return {};
-  }
-}
-async function writeFileAccess(map: Record<string, string[]>) {
-  try {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    await fs.writeFile(ACCESS_FILE, JSON.stringify(map, null, 2), "utf-8");
-  } catch (err) {
-    console.warn("Local access file save notice:", err);
-  }
-}
-
-const key = (username: string) => username.trim().toLowerCase();
-
-/** Device ids a user may use. Admins: "all". */
-export async function allowedDeviceIds(username: string, role: "admin" | "user"): Promise<Set<string> | "all"> {
+/** Switch ids a user may use. Admins: "all". */
+export async function allowedDeviceIds(username: string, role: Role): Promise<Set<string> | "all"> {
   if (role === "admin") return "all";
-  if (tableUsable()) {
-    const { data, error } = await supabase.from(ACCESS_TABLE).select("device_id").eq("username", key(username));
-    if (!error) return new Set((data ?? []).map((r) => r.device_id as string));
-    markMissing(error.message);
-  }
-  // No table: development reads the local file; production grants nothing.
-  return FILE_FALLBACK ? new Set((await readFileAccess())[key(username)] ?? []) : new Set();
+  const userId = await userIdOf(username);
+  if (!userId) return new Set();
+  const { data, error } = await supabase.from(ACCESS_TABLE).select("switch_id").eq("user_id", userId);
+  if (error) return new Set();
+  return new Set((data ?? []).map((r) => r.switch_id as string));
 }
 
-export async function canUseDevice(username: string, role: "admin" | "user", deviceId: string): Promise<boolean> {
+export async function canUseDevice(username: string, role: Role, deviceId: string): Promise<boolean> {
   const allowed = await allowedDeviceIds(username, role);
   return allowed === "all" || allowed.has(deviceId);
 }
 
 /**
- * Replaces the full list of devices a user may use. New grants are added
+ * Replaces the full list of switches a user may use. New grants are added
  * before old ones are removed, so a failed save never wipes existing access.
  */
 export async function setUserDevices(username: string, deviceIds: string[]): Promise<{ success: boolean; message: string }> {
-  const user = key(username);
+  const userId = await userIdOf(username);
+  if (!userId) return { success: false, message: `User '${username}' not found.` };
   const unique = Array.from(new Set(deviceIds));
 
-  if (tableUsable()) {
-    if (unique.length > 0) {
-      const add = await supabase
-        .from(ACCESS_TABLE)
-        .upsert(unique.map((device_id) => ({ username: user, device_id })), {
-          onConflict: "username,device_id",
-          ignoreDuplicates: true,
-        });
-      if (add.error) {
-        if (add.error.code === "PGRST205" || add.error.message.includes("schema cache")) markMissing(add.error.message);
-        else return { success: false, message: "Could not save access. Please try again." };
-      }
-    }
-    if (tableUsable()) {
-      let remove = supabase.from(ACCESS_TABLE).delete().eq("username", user);
-      if (unique.length > 0) remove = remove.not("device_id", "in", `(${unique.map((id) => `"${id}"`).join(",")})`);
-      const del = await remove;
-      if (!del.error) return { success: true, message: "Saved." };
-      if (del.error.code === "PGRST205" || del.error.message.includes("schema cache")) markMissing(del.error.message);
-      else return { success: false, message: "Could not save access. Please try again." };
-    }
+  if (unique.length > 0) {
+    const add = await supabase
+      .from(ACCESS_TABLE)
+      .upsert(unique.map((switch_id) => ({ user_id: userId, switch_id })), {
+        onConflict: "user_id,switch_id",
+        ignoreDuplicates: true,
+      });
+    if (add.error) return { success: false, message: missingTable(add.error) ? ACCESS_SETUP_MESSAGE : "Could not save access. Please try again." };
   }
 
-  if (!FILE_FALLBACK) return { success: false, message: ACCESS_SETUP_MESSAGE };
-  const map = await readFileAccess();
-  map[user] = unique;
-  await writeFileAccess(map);
-  return { success: true, message: "Saved (on this computer only; run supabase/add_device_access.sql to store it in the database)." };
+  let remove = supabase.from(ACCESS_TABLE).delete().eq("user_id", userId);
+  if (unique.length > 0) remove = remove.not("switch_id", "in", `(${unique.map((id) => `"${id}"`).join(",")})`);
+  const del = await remove;
+  if (del.error) return { success: false, message: missingTable(del.error) ? ACCESS_SETUP_MESSAGE : "Could not save access. Please try again." };
+  return { success: true, message: "Saved." };
 }
 
-/** All users with their role and granted devices (for the admin Users screen). */
-export async function listUsersWithAccess(): Promise<{ username: string; role: "admin" | "user"; deviceIds: string[] }[]> {
-  const { data: users } = await supabase.from(USER_TABLE).select("*").order("created_at", { ascending: true });
-  const rows = (users ?? []) as { username: string; role?: string }[];
-
-  let grants: Record<string, string[]> = {};
-  if (tableUsable()) {
-    const { data, error } = await supabase.from(ACCESS_TABLE).select("username, device_id");
-    if (!error) {
-      for (const g of data ?? []) (grants[g.username] ??= []).push(g.device_id);
-    } else {
-      markMissing(error.message);
-      grants = FILE_FALLBACK ? await readFileAccess() : {};
-    }
-  } else {
-    grants = FILE_FALLBACK ? await readFileAccess() : {};
+/** All users with their role and granted switches (for the admin Users screen). */
+export async function listUsersWithAccess(): Promise<{ username: string; role: Role; deviceIds: string[] }[]> {
+  const [{ data: users }, { data: grants }] = await Promise.all([
+    supabase.from(USER_TABLE).select("id, username, role").order("created_at", { ascending: true }),
+    supabase.from(ACCESS_TABLE).select("user_id, switch_id"),
+  ]);
+  const byUser = new Map<string, string[]>();
+  for (const g of grants ?? []) {
+    const list = byUser.get(g.user_id as string) ?? [];
+    list.push(g.switch_id as string);
+    byUser.set(g.user_id as string, list);
   }
-
-  return rows.map((u) => {
-    const role: "admin" | "user" =
-      u.role === "admin" || u.role === "user" ? u.role : u.username.toLowerCase() === "dhanushraja" ? "admin" : "user";
-    return { username: u.username, role, deviceIds: grants[key(u.username)] ?? [] };
-  });
+  return ((users ?? []) as { id: string; username: string; role?: string }[]).map((u) => ({
+    username: u.username,
+    role: u.role === "admin" ? "admin" : "user",
+    deviceIds: byUser.get(u.id) ?? [],
+  }));
 }
 
-/** Where access is stored: the database table, a local dev file, or nowhere yet. */
+/** Where access is stored: the database, or nowhere yet (SQL not run). */
 export async function accessStorageStatus(): Promise<"database" | "local" | "missing"> {
-  const { error } = await supabase.from(ACCESS_TABLE).select("device_id").limit(1);
-  if (!error) {
-    tableAvailable = true;
-    return "database";
-  }
-  return FILE_FALLBACK ? "local" : "missing";
+  const { error } = await supabase.from(ACCESS_TABLE).select("switch_id").limit(1);
+  return error ? "missing" : "database";
+}
+
+function missingTable(error: { code?: string; message?: string }): boolean {
+  return error.code === "42P01" || error.code === "PGRST205" || /schema cache|does not exist/i.test(error.message ?? "");
 }

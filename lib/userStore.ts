@@ -4,7 +4,7 @@ import { hashPassword, isPasswordHash, verifyPassword } from "./auth/password";
 // Server-only: used by the /api/auth and /api/users routes. The browser never
 // reads the users table or sees a password (plain or hashed).
 
-const USER_TABLE = "user_PRB_home_assistant";
+const USER_TABLE = "users";
 
 export interface UserAccount {
   id?: string;
@@ -15,10 +15,8 @@ export interface UserAccount {
 
 type Role = "admin" | "user";
 
-function roleOf(row: { username: string; role?: unknown }): Role {
-  if (row.role === "admin" || row.role === "user") return row.role;
-  // Before supabase/add_user_role.sql adds the column, DhanushRaja is the admin.
-  return row.username.toLowerCase() === "dhanushraja" ? "admin" : "user";
+function roleOf(row: { role?: unknown }): Role {
+  return row.role === "admin" ? "admin" : "user";
 }
 
 export async function loginUser(
@@ -79,18 +77,8 @@ export async function createUserAccount(
     const { error } = await supabase.from(USER_TABLE).insert([{ username: cleanUsername, password, role }]);
 
     if (error) {
-      // The users table has no `role` column yet (supabase/add_user_role.sql adds it).
-      if (error.code === "PGRST204" && error.message.includes("role")) {
-        if (role === "admin") {
-          return {
-            success: false,
-            message: "Admin users need the role column. Run supabase/add_user_role.sql in Supabase, then try again.",
-          };
-        }
-        const retry = await supabase.from(USER_TABLE).insert([{ username: cleanUsername, password }]);
-        if (retry.error) return { success: false, message: "Could not create the user. Please try again." };
-        return { success: true, message: `Created user '${cleanUsername}'.` };
-      }
+      // users_username_unique: someone created the same name at the same moment.
+      if (error.code === "23505") return { success: false, message: `User '${cleanUsername}' already exists.` };
       return { success: false, message: "Could not create the user. Please try again." };
     }
 

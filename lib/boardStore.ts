@@ -2,10 +2,11 @@ import { CloudBoard, PowerState } from "@/types";
 import { supabase } from "./supabaseClient";
 import { powerForRelay } from "./timerParse";
 
-// Cloud control (supabase/add_cloud_boards.sql). Each ESP32 board keeps a
-// live connection to Supabase: the app writes `desired`, the board switches
-// its relay and writes back its /status JSON as `reported`.
-const BOARD_TABLE = "esp_board_prb_home_assistant";
+// Cloud control (`boards` table, supabase/four_tables.sql). Each ESP32 board
+// keeps a live connection to Supabase: the app writes `desired` (relays) and
+// `commands` (timers), the board acts and writes back its /status JSON as
+// `reported`.
+const BOARD_TABLE = "boards";
 
 /** Boards check in every 60 s; after this long without one they're offline. */
 export const BOARD_ONLINE_MS = 150_000;
@@ -34,7 +35,7 @@ export interface BoardState {
 export class BoardSetupError extends Error {}
 
 export const BOARD_SETUP_MESSAGE =
-  "Cloud boards aren't set up yet. Run supabase/add_cloud_boards.sql in the Supabase SQL editor.";
+  "Cloud boards aren't set up yet. Run supabase/four_tables.sql in the Supabase SQL editor.";
 
 function isMissingTable(error: { code?: string; message?: string } | null): boolean {
   return !!error && (error.code === "42P01" || error.code === "PGRST205" || /does not exist|schema cache/i.test(error.message ?? ""));
@@ -126,7 +127,7 @@ export async function getBoardState(boardId: string): Promise<BoardState | null>
 
 /** Asks a board to switch one relay. False if the board doesn't exist. */
 export async function setBoardRelay(boardId: string, relay: number, power: Exclude<PowerState, "unknown">): Promise<boolean> {
-  const { data, error } = await supabase.rpc("set_board_relay", { p_board: boardId, p_relay: relay, p_power: power });
+  const { data, error } = await supabase.rpc("board_set_relay", { p_board: boardId, p_relay: relay, p_power: power });
   if (isMissingTable(error) || error?.code === "PGRST202") throw new BoardSetupError(BOARD_SETUP_MESSAGE);
   if (error) throw new Error(error.message);
   readCache.delete(boardId);
@@ -151,14 +152,63 @@ export async function listBoards(): Promise<CloudBoard[]> {
   }));
 }
 
-/** Power of every relay on the given boards, from their last report. */
-export async function reportedPower(boardIds: string[]): Promise<Map<string, { online: boolean; report: Record<string, unknown> | null }>> {
-  const result = new Map<string, { online: boolean; report: Record<string, unknown> | null }>();
-  if (boardIds.length === 0) return result;
-  const { data, error } = await supabase.from(BOARD_TABLE).select("*").in("board_id", boardIds);
+/** Every board's online state and report (moved on to now), by board id. */
+export async function allBoardStates(): Promise<Map<string, BoardState>> {
+  const result = new Map<string, BoardState>();
+  const { data, error } = await supabase.from(BOARD_TABLE).select("*");
   if (error) return result;
   for (const row of (data as BoardRow[] | null) ?? []) {
-    result.set(row.board_id, { online: isOnline(row), report: reportNow(row) });
+    result.set(row.board_id, { online: isOnline(row), report: reportNow(row), lastSeen: row.last_seen });
   }
   return result;
+}
+
+/* ------------------------------------------------------------------ */
+/* Timer commands                                                      */
+/* ------------------------------------------------------------------ */
+// Timers go to the board as numbered commands in its row. The board runs
+// each once and lists the result in reported.acks: {seq, ok, id?, error?}.
+
+export type BoardCommand =
+  | { op: "timer"; relay: number; action: "on" | "off"; seconds: number; repeat: boolean }
+  | { op: "cancel"; id: number }
+  | { op: "cancel_relay"; relay: number };
+
+export interface BoardAck {
+  seq: number;
+  ok: boolean;
+  /** Timer id (op "timer") or how many were cancelled (op "cancel_relay"). */
+  id?: number;
+  error?: string;
+}
+
+/** Queues a command; returns its number, or null if there's no such board. */
+export async function pushBoardCommand(boardId: string, command: BoardCommand): Promise<number | null> {
+  const { data, error } = await supabase.rpc("board_push_command", { p_board: boardId, p_command: command });
+  if (isMissingTable(error) || error?.code === "PGRST202") throw new BoardSetupError(BOARD_SETUP_MESSAGE);
+  if (error) throw new Error(error.message);
+  readCache.delete(boardId);
+  return typeof data === "number" ? data : data == null ? null : Number(data);
+}
+
+/**
+ * Waits for the board to confirm a command (it reports within a few
+ * seconds). Returns the ack and the board's state, or a null ack on timeout.
+ */
+export async function waitForBoardAck(
+  boardId: string,
+  seq: number,
+  timeoutMs = 10_000
+): Promise<{ ack: BoardAck | null; state: BoardState | null }> {
+  const until = Date.now() + timeoutMs;
+  let state: BoardState | null = null;
+  for (;;) {
+    readCache.delete(boardId);
+    state = await getBoardState(boardId);
+    const acks = Array.isArray(state?.report?.acks) ? (state!.report!.acks as unknown[]) : [];
+    const ack = acks.find((a) => (a as BoardAck)?.seq === seq) as BoardAck | undefined;
+    if (ack) return { ack, state };
+    if (Date.now() >= until) return { ack: null, state };
+    await new Promise((r) => setTimeout(r, 600));
+  }
 }

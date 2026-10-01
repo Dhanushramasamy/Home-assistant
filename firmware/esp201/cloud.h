@@ -3,10 +3,12 @@
 // ============================================================
 //
 // The board keeps one connection open to Supabase Realtime and is told the
-// moment the app changes its row in esp_board_prb_home_assistant. Nothing
-// has to reach the board's IP, so the app works from any network.
+// moment the app changes its row in `boards`. Nothing has to reach the
+// board's IP, so the app works from any network.
 //
 //   app tap      -> row.desired {"1":"on"} -> this board switches the relay
+//   app timer    -> row.commands [{seq, op, ...}] -> this board runs each once
+//                   and lists the result in reported.acks
 //   relay change -> this board writes row.reported (its /status JSON)
 //   every 60 s   -> check-in (row.last_seen), so the app knows it's online
 //
@@ -19,6 +21,10 @@
 //   bool getRelayState(uint8_t relay)
 //   String getStatusJSON()
 //   uint32_t cloudTimerSignature()          (changes when timers change)
+//   uint32_t createTimer(relay, actionOn, seconds, repeat, &error)  (0 = failed)
+//   bool cancelTimerById(uint32_t id)
+//   int cancelTimersOnRelay(uint8_t relay)
+// and puts cloudAcksJSON() into getStatusJSON() as "acks".
 // and secrets.h: SUPABASE_HOST, SUPABASE_KEY, BOARD_ID, BOARD_EMAIL,
 // BOARD_PASSWORD (scripts/board-login.mjs writes them).
 //
@@ -37,6 +43,9 @@ void setRelay(uint8_t relay, bool on);
 bool getRelayState(uint8_t relay);
 String getStatusJSON();
 uint32_t cloudTimerSignature();
+uint32_t createTimer(uint8_t relay, bool actionOn, uint32_t seconds, bool repeat, const char** error);
+bool cancelTimerById(uint32_t id);
+int cancelTimersOnRelay(uint8_t relay);
 
 // Certificates the board trusts for Supabase (its chain is Google Trust
 // Services today; the others are there in case it changes).
@@ -146,7 +155,7 @@ HMUfpIBvFSDJ3gyICh3WZlXi/EjJKSZp4A==
 -----END CERTIFICATE-----
 )PEM";
 
-#define CLOUD_TABLE "esp_board_prb_home_assistant"
+#define CLOUD_TABLE "boards"
 
 const unsigned long CLOUD_CHECKIN_MS = 60000;   // check-in / full report
 const unsigned long CLOUD_HEARTBEAT_MS = 25000; // Realtime needs one < 60 s
@@ -184,6 +193,23 @@ unsigned long cloudTimeWaitStart = 0;
 
 // Shown in /status as "cloud".
 String cloudState = "starting";
+
+// Timer commands: the last one run (saved in flash, so a restart doesn't run
+// old ones again) and the results of the last few, reported as "acks".
+uint32_t cloudLastSeq = 0;
+bool cloudSeqKnown = false;
+const unsigned long CLOUD_COMMAND_MAX_AGE_S = 300;  // ignore older commands
+
+struct CloudAck {
+  uint32_t seq;
+  bool ok;
+  uint32_t id;
+  const char* error;
+};
+
+#define CLOUD_ACKS 5
+CloudAck cloudAcks[CLOUD_ACKS];
+int cloudAckCount = 0;
 
 
 // ------------------------------------------------------------
@@ -227,6 +253,115 @@ void cloudApplyDesired(JsonObjectConst desired) {
   }
 
   cloudApplying = false;
+}
+
+
+// ------------------------------------------------------------
+// TIMER COMMANDS
+// ------------------------------------------------------------
+
+String cloudAcksJSON() {
+
+  String json = "[";
+
+  for (int i = 0; i < cloudAckCount; i++) {
+    const CloudAck &a = cloudAcks[i];
+    if (i > 0) json += ",";
+    json += "{\"seq\":" + String(a.seq) + ",\"ok\":" + (a.ok ? "true" : "false");
+    if (a.ok) json += ",\"id\":" + String(a.id);
+    else json += ",\"error\":\"" + String(a.error) + "\"";
+    json += "}";
+  }
+
+  return json + "]";
+}
+
+void cloudAddAck(uint32_t seq, bool ok, uint32_t id, const char* error) {
+
+  if (cloudAckCount == CLOUD_ACKS) {
+    for (int i = 1; i < CLOUD_ACKS; i++) cloudAcks[i - 1] = cloudAcks[i];
+    cloudAckCount--;
+  }
+
+  cloudAcks[cloudAckCount++] = { seq, ok, id, error };
+  cloudReportDue = true;
+}
+
+void cloudRunCommand(JsonObjectConst c, uint32_t seq) {
+
+  const char* op = c["op"] | "";
+
+  // Too old: the app has already told the user it failed.
+  long at = c["at"] | 0L;
+  time_t now = time(nullptr);
+  if (now > 1700000000 && at > 0 && now - at > (long)CLOUD_COMMAND_MAX_AGE_S) {
+    cloudAddAck(seq, false, 0, "expired");
+    return;
+  }
+
+  if (strcmp(op, "timer") == 0) {
+
+    const char* action = c["action"] | "";
+    const char* error = "invalid";
+    uint32_t id = 0;
+
+    if (strcmp(action, "on") == 0 || strcmp(action, "off") == 0) {
+      id = createTimer(
+        c["relay"] | 0,
+        strcmp(action, "on") == 0,
+        c["seconds"] | 0UL,
+        c["repeat"] | false,
+        &error
+      );
+    }
+
+    Serial.printf("[cloud] app: timer relay %d %s in %lus -> %s\n",
+      (int)(c["relay"] | 0), action, (unsigned long)(c["seconds"] | 0UL), id ? "ok" : error);
+    cloudAddAck(seq, id != 0, id, error);
+
+  } else if (strcmp(op, "cancel") == 0) {
+
+    bool found = cancelTimerById(c["id"] | 0UL);
+    Serial.printf("[cloud] app: cancel timer %lu -> %s\n", (unsigned long)(c["id"] | 0UL), found ? "ok" : "not found");
+    cloudAddAck(seq, found, c["id"] | 0UL, "not_found");
+
+  } else if (strcmp(op, "cancel_relay") == 0) {
+
+    int n = cancelTimersOnRelay(c["relay"] | 0);
+    Serial.printf("[cloud] app: cancel timers on relay %d -> %d\n", (int)(c["relay"] | 0), n);
+    cloudAddAck(seq, n >= 0, n < 0 ? 0 : n, "invalid");
+
+  } else {
+
+    cloudAddAck(seq, false, 0, "invalid");
+  }
+}
+
+// Runs every command newer than the last one run, once.
+void cloudRunCommands(JsonArrayConst commands) {
+
+  if (commands.isNull()) return;
+
+  // First time (freshly flashed): don't replay what's already there.
+  if (!cloudSeqKnown) {
+    for (JsonObjectConst c : commands) {
+      uint32_t seq = c["seq"] | 0UL;
+      if (seq > cloudLastSeq) cloudLastSeq = seq;
+    }
+    cloudSeqKnown = true;
+    cloudPrefs.putUInt("seq", cloudLastSeq);
+    return;
+  }
+
+  for (JsonObjectConst c : commands) {
+
+    uint32_t seq = c["seq"] | 0UL;
+    if (seq <= cloudLastSeq) continue;
+
+    cloudLastSeq = seq;
+    cloudPrefs.putUInt("seq", seq);
+    cloudRunCommand(c, seq);
+  }
 }
 
 
@@ -348,7 +483,7 @@ void cloudFetchDesired() {
   String resp;
   int code = cloudHttp(
     "GET",
-    String("/rest/v1/" CLOUD_TABLE "?select=desired&board_id=eq.") + BOARD_ID,
+    String("/rest/v1/" CLOUD_TABLE "?select=desired,commands&board_id=eq.") + BOARD_ID,
     "",
     &resp,
     true
@@ -372,6 +507,7 @@ void cloudFetchDesired() {
     } else {
       JsonObjectConst desired = doc[0]["desired"];
       if (!desired.isNull()) cloudApplyDesired(desired);
+      cloudRunCommands(doc[0]["commands"]);
     }
   }
 
@@ -466,6 +602,7 @@ void cloudOnMessage(const uint8_t* payload, size_t length) {
   filter["payload"]["message"] = true;
   filter["payload"]["response"]["reason"] = true;
   filter["payload"]["data"]["record"]["desired"] = true;
+  filter["payload"]["data"]["record"]["commands"] = true;
 
   JsonDocument doc;
   if (deserializeJson(doc, (const char*)payload, length, DeserializationOption::Filter(filter))) {
@@ -501,6 +638,7 @@ void cloudOnMessage(const uint8_t* payload, size_t length) {
 
     JsonObjectConst desired = doc["payload"]["data"]["record"]["desired"];
     if (!desired.isNull()) cloudApplyDesired(desired);
+    cloudRunCommands(doc["payload"]["data"]["record"]["commands"]);
 
   } else if (strcmp(event, "system") == 0) {
 
@@ -564,6 +702,9 @@ void cloudSendHeartbeat() {
 void cloudBegin() {
 
   cloudPrefs.begin("relays", false);
+
+  cloudSeqKnown = cloudPrefs.isKey("seq");
+  cloudLastSeq = cloudPrefs.getUInt("seq", 0);
 
   // Power cut: back to the last state straight away, even without internet.
   cloudRestoring = true;

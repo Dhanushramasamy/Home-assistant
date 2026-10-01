@@ -1,7 +1,7 @@
 import { getDeviceById, updateDevice, addTimerRecord, closeTimerRecords, reconcileTimerRecords } from "./deviceStore";
 import { parseTimerEntry, parseTimers, powerForRelay, reasonFromStatus, timerErrorMessage, timerModeOf } from "./timerParse";
 import { getNetworkConfig } from "./networkStore";
-import { BoardSetupError, getBoardState, setBoardRelay } from "./boardStore";
+import { BoardCommand, BoardSetupError, getBoardState, pushBoardCommand, setBoardRelay, waitForBoardAck } from "./boardStore";
 import {
   Device,
   DeviceControlResponse,
@@ -580,6 +580,50 @@ export async function applyDeviceReport(
   };
 }
 
+/**
+ * Cloud mode: sends a timer command through the board's row and waits for
+ * the board to confirm it (normally 2–4 s). Works from any network.
+ */
+async function timerViaBoard(
+  device: Device,
+  command: BoardCommand,
+  done: string
+): Promise<DeviceTimerResponse & { ackId?: number }> {
+  const boardId = device.boardId as string;
+  const targetUrl = `cloud:${boardId}/${command.op}`;
+  const relay = device.relay || 1;
+  const fail = (reason: NonNullable<DeviceTimerResponse["reason"]>, reachable: boolean, message?: string, timers?: DeviceTimerEntry[]) => ({
+    success: false,
+    deviceId: device.id,
+    reachable,
+    reason,
+    targetUrl,
+    timers,
+    message: message ?? timerErrorMessage(reason, device.name),
+  });
+
+  try {
+    // Don't queue for an offline board: it would run whenever it comes back.
+    const before = await getBoardState(boardId);
+    if (!before) return fail("error", false, `Board "${boardId}" doesn't exist. Check the device's Board setting.`);
+    if (!before.online) return fail("offline", false);
+
+    const seq = await pushBoardCommand(boardId, command);
+    if (seq == null) return fail("error", false, `Board "${boardId}" doesn't exist.`);
+
+    const { ack, state } = await waitForBoardAck(boardId, seq);
+    const timers = state?.report ? (parseTimers(state.report) ?? []).filter((t) => t.relay === relay) : undefined;
+    if (!ack) return fail("error", true, `${device.name} hasn't confirmed yet. Check again in a moment.`, timers);
+    if (!ack.ok) {
+      const reason = ack.error === "limit" || ack.error === "not_found" || ack.error === "invalid" ? ack.error : "error";
+      return fail(reason, true, undefined, timers);
+    }
+    return { success: true, deviceId: device.id, reachable: true, timers, targetUrl, message: done, ackId: ack.id };
+  } catch (err) {
+    return fail("error", false, (err as Error).message);
+  }
+}
+
 /** Creates a new timer on the ESP32 (existing timers keep running), then records it. */
 export async function startDeviceTimer(
   deviceId: string,
@@ -590,6 +634,21 @@ export async function startDeviceTimer(
   const device = await getDeviceById(deviceId);
   if (!device) {
     return { success: false, deviceId, reachable: false, reason: "error", targetUrl: "N/A", message: "Device not found." };
+  }
+
+  if (device.boardId) {
+    const result = await timerViaBoard(
+      device,
+      { op: "timer", relay: device.relay || 1, action, seconds, repeat },
+      `Timer added on ${device.name}.`
+    );
+    if (!result.success) return result;
+    const id = result.ackId ?? 0;
+    const created =
+      result.timers?.find((t) => t.id === id) ??
+      { id, active: true, relay: device.relay || 1, action, repeat, seconds, remaining: seconds };
+    await addTimerRecord(device.id, { espId: id, action, seconds, repeat, startedAt: new Date().toISOString() });
+    return { ...result, created };
   }
 
   const networkConfig = await getNetworkConfig();
@@ -642,12 +701,19 @@ export async function cancelDeviceTimer(deviceId: string, timerId: number): Prom
     return { success: false, deviceId, reachable: false, reason: "error", targetUrl: "N/A", message: "Device not found." };
   }
 
+  if (device.boardId) {
+    const result = await timerViaBoard(device, { op: "cancel", id: timerId }, `Timer cancelled on ${device.name}.`);
+    // not_found = the board no longer has it (fired or lost): it's not running.
+    if (result.success || result.reason === "not_found") await closeTimerRecords(device.id, [timerId]);
+    return result;
+  }
+
   const networkConfig = await getNetworkConfig();
   const res = await espRequest(device, networkConfig, "timer/cancel", { id: String(timerId) });
 
   if (res.ok || (res.reached && res.status === 404)) {
     // 404 = the ESP32 no longer has it (fired or lost); either way it's not running.
-    await closeTimerRecords(device.id, [timerId], res.ok ? "cancelled" : "ended");
+    await closeTimerRecords(device.id, [timerId]);
   }
   if (!res.ok) {
     const reason = res.reached ? reasonFromStatus(res.status) : "offline";
@@ -674,6 +740,16 @@ export async function clearDeviceTimers(deviceId: string): Promise<DeviceTimerRe
     return { success: false, deviceId, reachable: false, reason: "error", targetUrl: "N/A", message: "Device not found." };
   }
 
+  if (device.boardId) {
+    const result = await timerViaBoard(
+      device,
+      { op: "cancel_relay", relay: device.relay || 1 },
+      `All timers cleared on ${device.name}.`
+    );
+    if (result.success) await closeTimerRecords(device.id, "all");
+    return result;
+  }
+
   const networkConfig = await getNetworkConfig();
   const list = await espRequestUncached(device, networkConfig, "status");
   if (!list.ok) {
@@ -691,7 +767,7 @@ export async function clearDeviceTimers(deviceId: string): Promise<DeviceTimerRe
       const reason = res.reached ? reasonFromStatus(res.status) : "offline";
       return { success: false, deviceId, reachable: res.reached, reason, targetUrl: res.targetUrl, message: timerErrorMessage(reason, device.name) };
     }
-    await closeTimerRecords(device.id, "all", "cancelled");
+    await closeTimerRecords(device.id, "all");
     return { success: true, deviceId, reachable: true, timers: [], targetUrl: res.targetUrl, message: `Timers cancelled on ${device.name}.` };
   }
 
@@ -701,7 +777,7 @@ export async function clearDeviceTimers(deviceId: string): Promise<DeviceTimerRe
     const res = await espRequestUncached(device, networkConfig, "timer/cancel", { id: String(t.id) });
     if (res.ok || (res.reached && res.status === 404)) cancelled.push(t.id);
   }
-  await closeTimerRecords(device.id, cancelled, "cancelled");
+  await closeTimerRecords(device.id, cancelled);
 
   const allDone = cancelled.length === mine.length;
   return {
@@ -735,8 +811,8 @@ export async function recordBrowserTimerResult(
       startedAt: new Date().toISOString(),
     });
   } else if (change.type === "cancelled") {
-    await closeTimerRecords(deviceId, [change.espId], "cancelled");
+    await closeTimerRecords(deviceId, [change.espId]);
   } else {
-    await closeTimerRecords(deviceId, "all", "cancelled");
+    await closeTimerRecords(deviceId, "all");
   }
 }

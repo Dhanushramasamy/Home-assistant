@@ -12,8 +12,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Not allowed." }, { status: 401 });
   }
   const { count, error } = await supabase
-    .from("device_PRB_home_assistant")
+    .from("switches")
     .select("id", { count: "exact", head: true });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true, devices: count, at: new Date().toISOString() });
+  return NextResponse.json({ ok: true, switches: count, at: new Date().toISOString() });
 }

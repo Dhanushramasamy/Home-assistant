@@ -1,14 +1,14 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Device, DeviceType, DeviceMode, NetworkConfig } from "@/types";
+import { Device, DeviceType, NetworkConfig } from "@/types";
 import {
   parseIPv4Octets,
   octetsToIPv4,
   validateIpAgainstSubnet,
 } from "@/lib/networkUtils";
 import { ModalShell } from "@/components/ui/ModalShell";
-import { SheetHeader, FormGroup, FormRow, TypePicker, ModeSegment, IpInput, BoardField, cleanBoardId, rowInput, rowSelect } from "./DeviceFormParts";
+import { SheetHeader, FormGroup, FormRow, TypePicker, IpInput, BoardField, cleanBoardId, rowInput, rowSelect } from "./DeviceFormParts";
 
 interface EditDeviceModalProps {
   isOpen: boolean;
@@ -33,7 +33,6 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
   const [name, setName] = useState("");
   const [room, setRoom] = useState("Bedroom");
   const [type, setType] = useState<DeviceType>("light");
-  const [mode, setMode] = useState<DeviceMode>("direct");
   const [octets, setOctets] = useState<[string, string, string, string]>([
     "192",
     "168",
@@ -49,7 +48,6 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
       setName(device.name);
       setRoom(device.room);
       setType(device.type);
-      setMode(device.mode);
       setOctets(parseIPv4Octets(device.ip));
       setRelay(device.relay || 1);
       setBoardId(device.boardId ?? "");
@@ -77,7 +75,7 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
         name: name.trim(),
         room,
         type,
-        mode,
+        mode: "direct",
         ip: currentIp,
         relay,
         boardId: cleanBoardId(boardId),
@@ -131,12 +129,11 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
           </FormGroup>
 
           <FormGroup
-            caption="Connection"
+            caption="Direct (same Wi-Fi)"
             footer={validation.status === "warning" ? (
                 <span className="text-tint-light">{validation.message}</span>
               ) : null}
           >
-            <ModeSegment value={mode} onChange={setMode} layoutId="edit-mode-seg" />
             <FormRow label="IP Address">
               <IpInput octets={octets} onChange={handleOctetChange} />
             </FormRow>

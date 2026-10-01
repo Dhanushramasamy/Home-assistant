@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { DeviceType, DeviceMode, NetworkConfig } from "@/types";
 import { octetsToIPv4, validateIpAgainstSubnet } from "@/lib/networkUtils";
 import { ModalShell } from "@/components/ui/ModalShell";
-import { SheetHeader, FormGroup, FormRow, TypePicker, ModeSegment, IpInput, BoardField, cleanBoardId, rowInput, rowSelect } from "./DeviceFormParts";
+import { SheetHeader, FormGroup, FormRow, TypePicker, IpInput, BoardField, cleanBoardId, rowInput, rowSelect } from "./DeviceFormParts";
 
 interface AddDeviceModalProps {
   isOpen: boolean;
@@ -33,7 +33,6 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
   const [room, setRoom] = useState("Bedroom");
   const [customRoom, setCustomRoom] = useState("");
   const [type, setType] = useState<DeviceType>("light");
-  const [mode, setMode] = useState<DeviceMode>("direct");
   const [octets, setOctets] = useState<[string, string, string, string]>([
     "192",
     "168",
@@ -48,7 +47,6 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
     if (isOpen) {
       setName("");
       setType("light");
-      setMode(networkConfig?.mode || "direct");
       setOctets(["192", "168", "1", "200"]);
       setRelay(1);
     }
@@ -77,7 +75,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
         name: name.trim(),
         room: finalRoom,
         type,
-        mode,
+        mode: "direct",
         ip: currentIp,
         relay,
         boardId: cleanBoardId(boardId),
@@ -150,12 +148,11 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
           </FormGroup>
 
           <FormGroup
-            caption="Connection"
+            caption="Direct (same Wi-Fi)"
             footer={validation.status === "warning" ? (
                 <span className="text-tint-light">{validation.message}</span>
               ) : null}
           >
-            <ModeSegment value={mode} onChange={setMode} layoutId="add-mode-seg" />
             <FormRow label="IP Address">
               <IpInput octets={octets} onChange={handleOctetChange} />
             </FormRow>

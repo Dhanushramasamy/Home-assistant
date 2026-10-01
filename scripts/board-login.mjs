@@ -10,7 +10,7 @@
 // instead of printed.
 //
 // Needs NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (read from
-// .env.local). Run supabase/add_cloud_boards.sql first.
+// .env.local). Run supabase/four_tables.sql first.
 import { readFileSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 
@@ -41,7 +41,7 @@ if (!boardId || !/^[a-z0-9-]+$/.test(boardId)) {
   process.exit(1);
 }
 
-const TABLE = "esp_board_prb_home_assistant";
+const TABLE = "boards";
 const email = `${boardId}@boards.home-control.app`;
 const password = randomBytes(24).toString("base64url");
 const headers = { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" };
