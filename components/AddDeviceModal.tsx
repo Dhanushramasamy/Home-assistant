@@ -76,7 +76,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
         room: finalRoom,
         type,
         mode: "direct",
-        ip: currentIp,
+        ip: cleanBoardId(boardId) ? "" : currentIp,
         relay,
         boardId: cleanBoardId(boardId),
       });
@@ -147,18 +147,21 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
             <TypePicker value={type} onChange={setType} />
           </FormGroup>
 
-          <FormGroup
-            caption="Direct (same Wi-Fi)"
-            footer={validation.status === "warning" ? (
-                <span className="text-tint-light">{validation.message}</span>
-              ) : null}
-          >
-            <FormRow label="IP Address">
-              <IpInput octets={octets} onChange={handleOctetChange} />
-            </FormRow>
-          </FormGroup>
-
           <BoardField value={boardId} onChange={setBoardId} />
+
+          {/* A cloud board gets its address from the Wi-Fi; the IP is only for boards without one. */}
+          {!cleanBoardId(boardId) && (
+            <FormGroup
+              caption="Direct (same Wi-Fi)"
+              footer={validation.status === "warning" ? (
+                  <span className="text-tint-light">{validation.message}</span>
+                ) : null}
+            >
+              <FormRow label="IP Address">
+                <IpInput octets={octets} onChange={handleOctetChange} />
+              </FormRow>
+            </FormGroup>
+          )}
         </div>
       </form>
     </ModalShell>

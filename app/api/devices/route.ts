@@ -23,9 +23,10 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     
-    if (!body.name || !body.room || !body.ip) {
+    // A cloud board needs no IP (it gets one from the Wi-Fi); otherwise the IP is how it's reached.
+    if (!body.name || !body.room || (!body.ip && !body.boardId)) {
       return NextResponse.json(
-        { error: "Device Name, Room, and IP address are required." },
+        { error: "Name, room, and a board (or IP address) are required." },
         { status: 400 }
       );
     }

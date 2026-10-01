@@ -56,12 +56,12 @@ export function cleanBoardId(value: string): string | null {
 /** Cloud board this relay belongs to. With one, the app switches it through Supabase from any network. */
 export const BoardField: React.FC<{ value: string; onChange: (value: string) => void }> = ({ value, onChange }) => (
   <FormGroup
-    caption="Cloud"
+    caption="Board"
     footer={
       <span className="text-muted">
         {value.trim()
-          ? "Switched through the internet, from any network. The IP is only used at home for timers."
-          : "Leave empty to use the IP address only (same network)."}
+          ? "The board's name from Settings → Boards. Works from any network; no IP needed."
+          : "The board's name from Settings → Boards (e.g. esp202). Leave empty only for a board without cloud, then enter its IP."}
       </span>
     }
   >
