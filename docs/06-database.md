@@ -25,12 +25,12 @@ users ──── access ──── switches ──── boards ◄───
 |---|---|---|
 | `board_id` | admin | primary key, e.g. `esp201` (lower-case letters, digits, dashes) |
 | `name` | admin | e.g. `ESP201 · Erode bedroom` |
-| `auth_user_id` | `scripts/board-login.mjs` | the board's own Supabase sign-in |
+| `auth_user_id` | Settings → Boards | the board's own Supabase sign-in |
 | `desired` | app (board for local changes) | `{"1":"on"}`: what each relay should be |
 | `commands` | app | last 10 timer commands, each `{seq, at, op, ...}` |
 | `command_seq` | database | number of the latest command |
 | `reported` | board | its `/status` JSON: relays, timers, Wi-Fi, IP, uptime, cloud state, `acks` (command results) |
-| `ip`, `ssid`, `rssi` | board | current network, shown in Settings → Network |
+| `ip`, `ssid`, `rssi` | board | current network, shown in Settings → Boards |
 | `desired_at`, `reported_at`, `last_seen` | trigger | set by the database's clock |
 | `relay_pins`, `relay_active_low` | admin (Settings → Boards) | ESP32 pin per relay; relay type |
 | `wifi` | admin | `[{ssid, priority, password}]`, password encrypted by the server |

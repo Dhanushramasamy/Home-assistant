@@ -2,10 +2,13 @@
 
 ## Do next (in order)
 
-1. **Flash `firmware/esp200`** so ESP200 reports `timerApi: 2`. This unlocks full timers (ON/OFF later, repeat, cancel one) with no app change.
-2. **Cloud control for ESP200:** add `cloud.h` like ESP201 ([13](13-cloud-control.md#adding-a-board)). ESP201 is done, and its hotspot now uses DHCP.
-3. **Add Pixel → home → office to ESP200** (only ESP201 has all three today).
-4. **Security clean-up:** change the admin password; delete the public ChatGPT share link.
+1. **Add `CRON_SECRET` in Vercel** (any long random text) so the daily keep-alive runs and the free Supabase project never pauses.
+2. **Move ESP200 to the cloud:** at home, Settings → Boards → Add board `esp200` (2 relays, GPIO 23/22, home Wi-Fi), download, upload by USB, then set **Board** = `esp200` on its Light and Fan switches ([16](16-admin-guide.md)). This also gives it full timers.
+3. **Security clean-up:**
+   - change the admin password;
+   - change the Pi password;
+   - delete the public ChatGPT share link;
+   - decide whether the GitHub repo should be private.
 
 ## Planned features
 
@@ -13,15 +16,17 @@
 
 - The board's report takes 2–3 s (a new TLS connection each time). Reusing one connection hung on the ESP32 (2026-10-01). Options: retry with a newer ESP32 core or a different HTTP client, or move Supabase and Vercel to Mumbai (shorter trips from India).
 
-### Network prefix button (admin)
+### Wi-Fi setup from a phone
 
-- Settings → Network: type today's first three numbers (e.g. `10.233.105`) and tap Apply. Every device on that ESP32 becomes `10.233.105.<its ending>`.
-- One-tap "back to home (`192.168.1`)".
-- An alternative is for the ESP32 to report its IP to the app automatically.
+- Today, changing a board's Wi-Fi means downloading and uploading its code again. A setup mode (the board opens its own Wi-Fi to pick a network from a phone) would avoid the USB step.
+
+### Over-the-air updates
+
+- Upload new code to an installed board over Wi-Fi instead of USB. Needs a bigger app partition (the sketch uses 90 % of flash).
 
 ### Smaller ideas
 
-- Timer history view (the `ended` and `cancelled` rows already exist in the database).
+- Timer history view (the old timer-history table was dropped in the four-table rework).
 - Per-user notifications when a timer fires (needs cloud mode).
 - Login rate limiting.
 
@@ -29,12 +34,12 @@
 
 | Issue | Impact | Plan |
 |---|---|---|
-| Vercel / mobile data can't reach ESP200 | Remote control of ESP200 only works on the home network | Cloud control ([13](13-cloud-control.md)); done for ESP201 |
-| Hotspot address range changes every time | ESP200's fixed hotspot IP breaks | ESP201 uses DHCP and reports its IP; do the same for ESP200 |
-| ESP201 firmware uses 90 % of flash | Room for little more | Switch to a bigger app partition when adding features |
-| ESP200 runs old timer firmware | Can't create timers; basic mode only | Flash `firmware/esp200` |
+| ESP200 not on the cloud | Works only on home Wi-Fi; basic timers | Move it to the template (step 2 above) |
+| Board firmware uses 90 % of flash | Room for little more | Bigger app partition when adding features |
+| Cloud confirmation takes 2–3 s | The loader spins that long | New TLS connection per report; kept connections hung (see above) |
+| Closing the serial port can leave ESP201 in upload mode | Board offline until reset | Press EN/RST; avoid serial loggers on installed boards |
 | Network settings live in `data/network.json` only | On Vercel they reset when the server restarts | Move into the database (or drop: cloud boards don't need them) |
 | ESP32 HTTP API has no authentication | Anyone on the same Wi-Fi can switch relays | Acceptable at home; cloud mode adds per-device credentials |
-| 6 pre-existing lint errors | None at runtime (setState in effects, one `prefer-const`, one `any`) | Clean up when touching those files |
+| 5 pre-existing lint errors | None at runtime (setState in effects, one `prefer-const`) | Clean up when touching those files |
 | Legacy unused components (`Header`, `SummaryCards`, `DeviceGrid`, `RoomFilter`, `SearchBar`) | Dead code | Delete in a cleanup pass |
 | Browser can't list devices on the network | An in-app "network terminal" isn't possible | Use the Mac Terminal commands or the ESP32 serial monitor |

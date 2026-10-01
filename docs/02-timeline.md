@@ -80,6 +80,20 @@ Within the Claude Code session, the look went through several directions before 
    - Summary in `docs/esp32-history.md`; full transcript kept locally in `docs/private/`.
 4. This documentation set.
 
+## Phase 8 — Cloud control, four tables, Boards screen (2026-09-30 → 10-01)
+
+1. **Cloud control through Supabase Realtime:** ESP201 works from any network, with no static IP (`0408a09`).
+2. **Database rebuilt as four tables:** `users`, `boards`, `switches`, `access`. Timers go through the cloud; the old tables were dropped (`a9e8237`).
+3. **Speed and stability:**
+   - the server moved to Sydney, next to the database;
+   - ESP201's 15-second re-join loop was fixed;
+   - its internet work runs on its own core (`ab2169f`, `5c08339`).
+4. **Per-switch loader** that waits for the board to confirm, with clear errors (`9c91b0e`, `20ea876`).
+5. **Settings → Boards:** set up an ESP32 in the app and download its code; one common firmware template. ESP201 moved to it (`0f7dab3`).
+6. **Admin guide** (illustrated PDF, kept private) and [16 · Admin guide](16-admin-guide.md).
+
+Full detail, with incidents and lessons: [15 · Change log](15-change-log.md).
+
 ---
 
 ## Mistakes made along the way (and what was fixed)
@@ -92,3 +106,6 @@ These are recorded so they aren't repeated:
 | Live-sync test | Wrote "Light OFF" to the DB while it was really ON | Re-synced from `/status` immediately |
 | Timer investigation | `/timers/clear?relay=9` wiped all four ESP200 timers (the firmware ignores `relay`) | Relay 2's timer restored with its original end time; the app now never calls `/timers/clear` |
 | Device access | Saving fell back to a temporary file on Vercel and said "saved" | Save now fails clearly without the table; read-back confirmation |
+| ESP201 first cloud flash | The imported `secrets.h` had the wrong Airtel password, so the board joined no Wi-Fi | Correct password from the user; the Pi's own sketch is the reference for Wi-Fi values |
+| Live test on the Pi | Stopping a serial log reader left ESP201 in upload mode (offline) | Board restarted with an RTS pulse; the guide tells you to press EN/RST |
+| Faster confirmation attempt | A kept-open HTTPS connection hung the ESP32's second request | Reverted to one connection per report; the loader waits for confirmation |

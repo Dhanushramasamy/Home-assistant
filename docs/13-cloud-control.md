@@ -34,7 +34,7 @@ The `boards` table ([06](06-database.md), created by `supabase/four_tables.sql`)
 |---|---|---|
 | `board_id` | admin | e.g. `esp201` |
 | `name` | admin | e.g. `ESP201 · Erode bedroom` |
-| `auth_user_id` | `scripts/board-login.mjs` | The board's own Supabase sign-in |
+| `auth_user_id` | Settings → Boards (or `scripts/board-login.mjs`) | The board's own Supabase sign-in |
 | `desired` | app (and board, for local changes) | `{"1":"on","2":"off"}`: what the relays should be |
 | `desired_at` | trigger | When `desired` last changed |
 | `commands`, `command_seq` | app | Timer commands, numbered; the last 10 are kept |
@@ -73,7 +73,7 @@ The SQL also:
 | `lib/deviceController.ts` | Devices with a `boardId` switch through the board (`controlViaBoard`), read status from the board's report (`boardStatus`) and test by last check-in |
 | `app/api/devices` (GET) | Board devices take power and online state from the board, so wall-switch or timer changes show on every phone within 3 s |
 | `app/api/boards` | Admin only: every board with network, IP, signal, last check-in |
-| Settings → Network | New **Cloud Boards** list (refreshes every 10 s) |
+| Settings → Boards | Every board, live state, setup and code download ([14](14-adding-a-board.md)) |
 | Add / Edit device | New **Cloud · Board** field. Empty = direct IP as before |
 | `app/api/cron/keepalive` + `vercel.json` | Vercel calls it daily at 08:00 IST so the free Supabase project never pauses. Needs `CRON_SECRET` in Vercel |
 | `lib/timerParse.ts` | Reads `relayN: true/false` too (ESP201's format, which the app used to miss) |
@@ -117,7 +117,7 @@ From the app: Settings → Boards → Add board, then Download code and upload i
 curl http://192.168.1.201/status        # "cloud":"online" when listening
 ```
 
-In the app: Settings → Network → Cloud Boards shows the board online with its Wi-Fi and IP. Test Connection on the device says "online through esp201".
+In the app: Settings → Boards shows the board online with its Wi-Fi and IP. Test Connection on the device says "online through esp201".
 
 ## Free-plan numbers
 

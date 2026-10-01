@@ -20,8 +20,10 @@
 | | |
 |---|---|
 | Relay 1 | GPIO **23** |
-| Wi-Fi priority | 1. Pixel hotspot → fixed `…201` · 2. Home `Dhanush-Wifi-2.4G` → DHCP · 3. Airtel office `Airtel_kaly_5220` → fixed `192.168.1.201` |
-| Hotspot values in the sketch | `10.196.10.201`, gateway `10.196.10.202` (these break when the hotspot range changes; see below) |
+| Firmware | Common template (`firmware/template`), set up in Settings → Boards, flashed from the Pi on 2026-10-01 |
+| Wi-Fi priority | 1. `Dhanush's Pixel` hotspot · 2. Home `Dhanush-Wifi-2.4G` · 3. Airtel office `Airtel_kaly_5220`, all DHCP (no static IP) |
+| Current address | `192.168.1.131` on Airtel (from DHCP; shown in Settings → Boards) |
+| Control | Cloud: from any network through Supabase ([13](13-cloud-control.md)) |
 
 ### Other devices on the office network (Airtel `192.168.1.x`)
 
@@ -29,7 +31,7 @@
 |---|---|
 | Raspberry Pi 5 | `192.168.1.100` (also the default "gateway" IP in the app) |
 | Raspberry Pi 4 | `192.168.1.101` |
-| ESP200 / ESP201 | `.200` / `.201` |
+| ESP200 / ESP201 | `.200` (home) / `.131` (DHCP, may change) |
 
 ## What can reach what
 
@@ -43,7 +45,7 @@ The ESP32 answers only on its **local network**. Whether the app can control it 
 | Phone on mobile data | ❌ no | `192.168.x.x` addresses only exist inside a home network |
 | Device on the Pixel hotspot while the ESP32 is on home Wi-Fi | ❌ no | Different networks |
 
-The Vercel site still does login, users, access, saved data and live sync. It just can't switch the relays. Controlling from anywhere needs the **cloud (MQTT) mode** on the [roadmap](12-roadmap-and-known-issues.md).
+This table is about **boards without the cloud** (ESP200 today). A **cloud board** (ESP201) is switched from any of these, including the Vercel site and mobile data, because it keeps its own outbound connection to Supabase ([13](13-cloud-control.md)).
 
 ## The phone-hotspot problem
 
@@ -79,4 +81,5 @@ Browsers can't scan the network or list connected devices, so an in-app "network
 
 - **Tailscale** on the Pi worked for the phone (the phone needs Tailscale installed).
 - Public static IP / port forwarding: not pursued, because of CGNAT and security.
-- **Recommended:** cloud MQTT broker (e.g. HiveMQ Cloud free tier). The ESP32 keeps an outbound connection open, and the app sends commands through the broker. This works on any Wi-Fi or mobile data, with no IPs involved.
+- Firebase Realtime Database (seen in a tutorial) was considered; the tutorial's ESP32 polls, and a stream is better.
+- **Chosen and built (2026-09-30):** Supabase Realtime, which the app already used. The ESP32 keeps one outbound connection open, so it works on any Wi-Fi with internet and no IPs are involved ([13](13-cloud-control.md)).

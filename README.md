@@ -24,6 +24,8 @@ Everything about the project, from how it started to what's next, is in **[`docs
 12. [Roadmap and known issues](docs/12-roadmap-and-known-issues.md)
 13. [Cloud control](docs/13-cloud-control.md)
 14. [Adding a board](docs/14-adding-a-board.md)
+15. [Change log (30 Sep – 1 Oct 2026)](docs/15-change-log.md)
+16. [Admin guide: add a new ESP32](docs/16-admin-guide.md)
 
 ## Quick start
 

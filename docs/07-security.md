@@ -29,7 +29,10 @@ The relays may switch mains power, so the app treats "who can switch what" serio
 |---|---|---|
 | `SESSION_SECRET` | `.env.local` and Vercel env | commit it |
 | `SUPABASE_SERVICE_ROLE_KEY` | `.env.local` and Vercel env (server only, no `NEXT_PUBLIC_`) | expose it to the browser or commit it |
-| Wi-Fi passwords | `firmware/*/secrets.h` | commit them (the files are git-ignored) |
+| Wi-Fi passwords | `boards.wifi` (encrypted), and the generated `board_config.h` in each board's download; old sketches: `firmware/*/secrets.h` | commit them, or share a board's download |
+| Board sign-in passwords | `boards.secret` (encrypted); Supabase Authentication holds the user | — |
+| `BOARD_SECRET_KEY` (optional) | Vercel env; without it `SESSION_SECRET` is used to derive the AES-256-GCM key (`lib/secretBox.ts`) | change it without re-entering Wi-Fi passwords (old values become unreadable) |
+| `CRON_SECRET` | Vercel env | — (lets only Vercel Cron call `/api/cron/keepalive`) |
 | Full ChatGPT transcript | `docs/private/` | commit it (git-ignored) |
 
 `.env*`, `firmware/**/secrets.h`, `docs/private/` and `data/device-access.json` are all in `.gitignore`.
@@ -47,5 +50,7 @@ The relays may switch mains power, so the app treats "who can switch what" serio
 1. **Change the admin password** (Settings → General → Change Password). The old default is visible in the git history.
 2. **Delete the public ChatGPT share link.** It contains Wi-Fi passwords: ChatGPT → Settings → Data controls → Shared links.
 3. **Supabase publishable key** is hard-coded as a fallback in `lib/supabaseClient.ts`. It's a public key by design and, with RLS on, can read nothing, but it can be removed once env vars are set everywhere.
-4. **ESP32s have no authentication.** Anyone on the same Wi-Fi can call `/on` or `/off`. Acceptable on a private home network; the cloud (MQTT) mode would add per-device credentials.
+4. **ESP32s' local HTTP API has no authentication.** Anyone on the same Wi-Fi can call `/on` or `/off`. Cloud control is authenticated: each board has its own Supabase login and can touch only its own `boards` row (tested: `users` → permission denied; changing its name → 403).
 5. **Rate limiting** on login isn't implemented.
+6. **The GitHub repo is public.** Docs mention usernames, Wi-Fi network names and local IPs (no passwords; checked before each push). Make the repo private if that matters. The illustrated guide PDF is kept in git-ignored `docs/private/guide/`.
+7. **Pi password:** it was shared in chat; change it (`passwd` on the Pi). SSH uses a key, so nothing breaks.

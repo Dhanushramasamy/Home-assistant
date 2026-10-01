@@ -52,67 +52,70 @@ home-assistant/
 ## Runtime pieces
 
 ```text
-┌──────────────── Browser (phone / laptop) ────────────────┐
-│ app/page.tsx (client component)                          │
-│  • session from GET /api/auth/me                         │
-│  • devices from GET /api/devices, re-read every 3 s      │
-│  • ESP32 status via /api/devices/status (10 s / device)  │
-│  • fallback: direct GET http://<ESP32>/... from browser  │
-└───────────────┬──────────────────────────────────────────┘
+┌──────────────── Browser (phone / laptop, any network) ───────────────┐
+│ app/page.tsx (client component)                                       │
+│  • session from GET /api/auth/me                                      │
+│  • switches from GET /api/devices, re-read every 3 s                  │
+│  • status per switch via /api/devices/status (10 s; ~0.6 s while a     │
+│    tap is being confirmed)                                            │
+│  • one lock + loader per switch while a tap is in flight              │
+└───────────────┬───────────────────────────────────────────────────────┘
                 │ fetch /api/*  (cookie: hc_session)
-┌───────────────▼──────────── Next.js server ──────────────┐
-│ proxy.ts ─ rejects no-session (401) / non-admin (403)    │
-│ route handlers ─ device access check (403)               │
-│ lib/deviceController ─► ESP32 over HTTP (LAN)            │
-│ lib/*Store ─► Supabase (service-role key)                │
-└──────────────┬──────────────────────────┬────────────────┘
-               │                          │
-        ┌──────▼──────┐            ┌──────▼──────────────────┐
-        │ ESP32 (LAN) │            │ Supabase Postgres (RLS) │
-        └─────────────┘            └─────────────────────────┘
+┌───────────────▼──────── Next.js server (Vercel, syd1) ────────────────┐
+│ proxy.ts ─ rejects no-session (401) / non-admin (403)                 │
+│ route handlers ─ switch access check (403)                            │
+│ lib/deviceController ─► cloud board: Supabase (board_set_relay, …)    │
+│                      └► board without cloud: HTTP to its IP (LAN only)│
+│ lib/*Store ─► Supabase (service-role key)                              │
+└──────────────┬────────────────────────────────────────────────────────┘
+               │
+        ┌──────▼──────────────────────────────┐
+        │ Supabase (Sydney): users, boards,    │
+        │ switches, access · RLS · Realtime    │
+        └──────▲──────────────────────────────┘
+               │ one live connection (WSS) + HTTPS reports, outbound
+        ┌──────┴──────┐
+        │ ESP32 board │  any Wi-Fi with internet (DHCP)
+        └─────────────┘
 ```
 
-## How a tap reaches a relay
+## How a tap reaches a relay (cloud board)
 
-1. The user taps the On/Off pill on the **Light** tile. `PowerPill` plays the click sound and haptic, then calls `handleTogglePower` in `app/page.tsx`.
-2. **Optimistic UI:** the tile switches immediately. The device is marked "just changed" for 5 s, so live sync doesn't flip it back before the server catches up.
-3. The browser fires `GET http://192.168.1.200/on?relay=1` directly (no-cors). This works when the page is served over `http` on the same network.
-4. It also calls `POST /api/devices/control {deviceId, action:"on"}`. `proxy.ts` checks the session; the route checks the user may use this device; `executeDeviceControl` sends `GET http://<ip>/on?relay=<relay>` (or forwards through the Pi gateway) and stores the new state in Supabase.
-5. About 0.8 s later the page re-reads `/api/devices/status`. The ESP32's `/status` → `relays[]` is the truth for that relay's power.
-6. **Other phones** pick up the change on their next 3-second `/api/devices` read.
+1. **Tap:** the user taps the On/Off pill. The switch moves at once and shows a spinner; more taps on it are ignored.
+2. **Server:** `POST /api/devices/control` checks the session and access. `controlViaBoard` calls `board_set_relay`, which sets `desired = {"1":"on"}` on the board's row.
+3. **Realtime:** Supabase pushes the row change to the board's open connection (~0.6 s). The board's cloud task queues it, and its main loop switches the relay.
+4. **Report:** the board PATCHes its `/status` JSON into `reported` (~2–3 s after the tap).
+5. **Confirm:** the page polls `/api/devices/status` until the board's own report shows the new state (`pending: false`), then stops the spinner. Board offline → immediate error; no answer in 10 s → error; different state → the real state plus an error.
+6. **Other phones:** they see it on their next 3-second `/api/devices` read.
+
+A board without the cloud (ESP200) is switched by `GET http://<ip>/on?relay=N`, which only works when the server or browser is on its Wi-Fi. On Vercel such taps fail straight away with a clear message.
 
 ## How status and timers sync
 
-- **ESP32 is the source of truth** for power and running timers. The database only remembers what was set (for history, and for the "saved · offline" view).
-- `getDeviceStatus` → `GET /status` on the ESP32. Two tiles on the same ESP32 share one request (2-second de-dup). Then `applyDeviceReport`:
-  1. picks this tile's relay power from `relays[]`;
-  2. keeps only this relay's timers;
-  3. detects the firmware timer mode (`timerApi` ≥ 2 = "full", else "basic");
-  4. reconciles timer records (full mode only): records no longer running are marked `ended`, running timers the DB didn't know are added;
-  5. updates the device's power and online state.
-- **Countdowns** tick locally every second from the last sync (`remainingNow`) and are corrected at each sync.
-- **Sync schedule** (`app/page.tsx`): each device is re-checked every 10 s while online. Offline devices back off: 60 s, then doubling up to 5 min. The device screen re-checks every 15 s while open.
+- **The board is the source of truth.** Its `reported` JSON holds relays, running timers, Wi-Fi, IP, uptime, cloud state and `acks` (command results). Countdowns are moved on by the report's age (`lib/boardStore.ts`).
+- **Pending tap:** for 15 s after a tap, until the board reports again, the server counts the asked-for state (`withPending`) so lists don't flick back.
+- **Timers:** `board_push_command` adds `{seq, op, …}` to `boards.commands`. The board runs each once and the app waits for its ack ([13](13-cloud-control.md#timers-through-the-cloud)).
+- **Online:** the board checked in within 150 s (it checks in every 60 s).
 
 ## Device model
 
-A **device** in the app is one relay:
+A **switch** (a `Device` in the code) is one relay:
 
 ```ts
 interface Device {
-  id: string;            // e.g. "kitchen-light"
+  id: string;            // e.g. "light"
   name: string;          // "Light"
   room: string;          // "Bedroom"
   type: "light" | "fan" | "plug" | "other";
-  mode: "direct" | "gateway";
-  ip: string;            // "192.168.1.200"
-  relay: number;         // 1 or 2
-  powerState: "on" | "off" | "unknown";
+  boardId: string | null;// cloud board, e.g. "esp201"; null = direct IP only
+  ip: string;            // the board's reported IP (cloud) or the saved IP
+  relay: number;         // 1..8
+  powerState: "on" | "off" | "unknown";       // from the board, not stored
   connectionState: "connected" | "offline" | "checking";
-  timers?: DeviceTimerConfig[];   // saved timer records
 }
 ```
 
-ESP200 is therefore two devices with the same `ip` and `relay` 1 / 2.
+Stored in `switches` (no power column). Several switches can share a board (one per relay).
 
 ## Direct mode vs gateway mode
 

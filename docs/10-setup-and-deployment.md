@@ -23,6 +23,7 @@ Create `.env.local` in the project root (git-ignored):
 | `SUPABASE_SERVICE_ROLE_KEY` | yes (after RLS) | Supabase **secret** service-role key (Supabase → Settings → API). Server only |
 | `SESSION_SECRET` | yes | Any long random string that signs login cookies. Generate with `openssl rand -base64 48` |
 | `CRON_SECRET` | Vercel only | Any long random string. Lets Vercel's daily keep-alive (`vercel.json`) run so Supabase never pauses |
+| `BOARD_SECRET_KEY` | optional | Key for encrypting board Wi-Fi and sign-in passwords. Without it, `SESSION_SECRET` is used. Changing it makes saved board passwords unreadable |
 
 `NEXT_PUBLIC_SUPABASE_ANON_KEY` is accepted as an older alternative to the publishable key.
 
@@ -32,13 +33,16 @@ Without `SESSION_SECRET`, login returns "Sign-in isn't configured on the server"
 
 1. Set `SUPABASE_SERVICE_ROLE_KEY` locally **and** on Vercel, and redeploy.
 2. `supabase/four_tables.sql`: the four tables (users, boards, switches, access), functions, security, Realtime.
-3. For each cloud board: `node scripts/board-login.mjs <board> "<name>" --secrets firmware/<board>/secrets.h`.
+3. `supabase/board_setup.sql`: the board setup columns (relays, pins, Wi-Fi, encrypted sign-in).
+4. Boards are then added in the app: Settings → Boards ([16](16-admin-guide.md)). `scripts/board-login.mjs` is the older terminal way.
 
 On a brand-new project, add the first admin by hand in the SQL editor (password hash from `lib/auth/password.ts`), or create the user from an existing install.
 
 Details: [06 · Database](06-database.md).
 
 ## Deploy to Vercel
+
+- `vercel.json` pins the functions to **`syd1` (Sydney)**, next to the Supabase database (AWS ap-southeast-2). Keep them in the same region; otherwise every query crosses an ocean.
 
 - Pushing to `main` on GitHub deploys automatically to `prp-home-assistant.vercel.app`.
 - In Vercel → Project → Settings → Environment Variables, set **all four** variables above, then redeploy.

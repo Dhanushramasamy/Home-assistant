@@ -7,15 +7,18 @@
 | Tile shows **"—"** and a red dot | The app can't reach the ESP32 | Check you're on the same Wi-Fi as the ESP32 and opened the app over `http://` (not the Vercel site); `curl http://<IP>/status` |
 | Works at home, not on mobile data or the Vercel site | Local addresses can't be reached from the internet | Expected. Use the app on the home network, or build cloud (MQTT) mode |
 | ESP32 "connected" on the hotspot but unreachable; ping fails | Hotspot picked a new address range; the ESP32 uses a fixed address from an older range | DHCP-then-`.201` firmware change ([08](08-devices-and-network.md#the-phone-hotspot-problem)); update the IP in the app |
-| Relay clicks but the app shows the old state | State is read from `/status`; sync runs every 10 s | Wait or reopen the device screen; check `/status` `relays[]` |
+| Relay clicks but the app shows the old state | The board's report hasn't arrived | The loader waits for it (2–3 s); if it errors, check the board in Settings → Boards |
+| Error "can't reach your home Wi-Fi directly" | A board without the cloud (ESP200) opened from the live site | Use it on its own Wi-Fi, or move it to the cloud ([16](16-admin-guide.md)) |
 | Both tiles switch the same relay | Two tiles with the same IP and relay number | Edit one tile to relay 2 (ESP200: Light = 1, Fan = 2) |
 
 ## Cloud boards
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Board offline in Settings → Network | No power, no Wi-Fi, or the Wi-Fi has no internet | `curl http://<IP>/status`: `"cloud"` shows `no wifi`, `sign-in failed`, `join refused` or `online` |
-| `"cloud":"sign-in failed"` | Wrong or reset board password | `node scripts/board-login.mjs <board> --secrets firmware/<board>/secrets.h`, then flash again |
+| Board offline in Settings → Boards | No power, no Wi-Fi, or the Wi-Fi has no internet | `http://<IP>/status` on the same Wi-Fi: `"cloud"` shows `no wifi`, `sign-in failed`, `join refused` or `online` |
+| Board offline right after a serial monitor / logger was closed | Closing the port left it in upload mode | Press **EN/RST** once |
+| `"cloud":"sign-in failed"` | Board password changed or the key changed | Settings → Boards → the board → **Download code** → upload again |
+| "Enter the password for X again" when downloading | Saved passwords can't be decrypted (key changed) | Type the Wi-Fi passwords again, Save, download |
 | Tap works but the tile flips back after ~15 s | The board switched but its report failed | Check the board's check-ins; see `"cloud"` in `/status` |
 | "Cloud boards aren't set up yet" | `four_tables.sql` not run | Run it in the SQL editor |
 | Timer: "hasn't confirmed yet" | The board got it but its report is slow or failed | Wait a few seconds and reopen; check `"acks"` in `/status` |

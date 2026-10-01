@@ -16,7 +16,7 @@
   - ↗ arrow, which opens the device screen;
   - room and name, with a red dot when the device isn't responding;
   - timer chip: "Off in 10:14 +2" (next timer plus how many more), or "N saved · offline";
-  - **On/Off pill**: lime knob when on, white when off, "—" and disabled when the real state is unknown.
+  - **On/Off pill**: lime knob when on, white when off, "—" and disabled when the real state is unknown. A **spinner** in the knob means it's waiting: for the first check when the app opens, or for the board to confirm a tap. While it spins, more taps on that switch are ignored.
 - **Floating bottom nav:** Home and Settings (admin). It's hidden for users who only have Home.
 - **Empty state:** "No Devices", with Add Device / Load Sample for the admin. A user with no granted devices sees an empty home.
 
@@ -50,11 +50,19 @@ Timers run **on the ESP32**, so they fire even when every phone is closed.
 
 **Offline device:** no timer is shown as running. Saved timers appear in a dashed box, "Saved in the app · not confirmed on the device".
 
+## Switching and confirmation
+
+- **Cloud switch:** the spinner stays until the board itself reports the new state (normally 2–3 s).
+  - Board offline → error straight away ("Its board isn't connected").
+  - No answer in 10 s → error, and the switch shows the real state.
+  - The board reports another state → the real state, with an error.
+- **Board without cloud (ESP200), opened from the live site:** an error at once says it only works on its own Wi-Fi.
+
 ## Live sync between phones
 
-- Every open app re-reads the device list every **3 seconds** while visible, and immediately when brought back to the front.
-- A switch you just flipped keeps its new state for 5 s, so a slightly stale read can't flip it back.
-- ESP32 status is also re-checked every 10 s per device (15 s on the open device screen).
+- Every open app re-reads the switch list every **3 seconds** while visible, and immediately when brought back to the front.
+- Background reads never change a switch that's waiting for confirmation.
+- Status is also re-checked every 10 s per switch (15 s on the open device screen).
 
 ## Settings (admin)
 
@@ -63,7 +71,8 @@ Timers run **on the ESP32**, so they fire even when every phone is closed.
 | **Account** | Your name and role; Switch Account; Sign Out |
 | **General** | Your role; **Change Password**; **New User** (username, password, Administrator switch) |
 | **Users** | For each user, a switch per device; **Save** per user (shows "Unsaved changes", then "Saved ✓" only after reading it back from the server). Warns before leaving with unsaved changes. Shows a banner if the access table isn't set up |
-| **Network** | Network name, subnet, router; Direct / Raspberry Pi gateway mode |
+| **Boards** | Every ESP32 with online dot, Wi-Fi, IP, relays, last check-in. **Add board / edit**: name, label, relays and pins, relay type, Wi-Fi networks in priority order; **Save**, **Download code** (ready Arduino zip), **Delete board**. See [14](14-adding-a-board.md) |
+| **Network** | Network name, subnet, router; Direct / Raspberry Pi gateway mode (for boards without the cloud) |
 | **Devices** | List of devices with edit, delete and test |
 | **Controller** | Gateway / controller details |
 | **Advanced** | Reset to sample devices, clear devices |
@@ -75,8 +84,8 @@ Users who aren't admins don't see Settings in the nav. The server also blocks ad
 iOS-style form sheet with Cancel / title / Add or Save:
 - name, room (pick one or add a new room), relay 1–4;
 - type (light, fan, plug, other);
-- Direct or Pi Gateway;
-- IP address as four boxes, with a warning if it's outside the configured subnet.
+- **Board**: the board's name from Settings → Boards (e.g. `esp202`). With a board, no IP is needed and the IP row is hidden;
+- IP address as four boxes, only for a switch without a board, with a warning if it's outside the configured subnet.
 
 ## Notifications
 
