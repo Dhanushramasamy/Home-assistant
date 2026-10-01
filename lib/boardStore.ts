@@ -23,6 +23,10 @@ interface BoardRow {
   ssid: string | null;
   rssi: number | null;
   last_seen: string | null;
+  // From supabase/board_setup.sql (missing before it's run).
+  relay_pins?: number[] | null;
+  relay_active_low?: boolean | null;
+  wifi?: { ssid: string; priority: number; password?: string | null }[] | null;
 }
 
 export interface BoardState {
@@ -148,6 +152,11 @@ export async function listBoards(): Promise<CloudBoard[]> {
   return ((data as BoardRow[] | null) ?? []).map((row) => ({
     boardId: row.board_id,
     name: row.name,
+    relayPins: row.relay_pins ?? [],
+    relayActiveLow: row.relay_active_low !== false,
+    wifi: [...(row.wifi ?? [])]
+      .sort((a, b) => a.priority - b.priority)
+      .map((w) => ({ ssid: w.ssid, priority: w.priority, hasPassword: !!w.password })),
     online: isOnline(row),
     linked: !!row.auth_user_id,
     ip: row.ip,

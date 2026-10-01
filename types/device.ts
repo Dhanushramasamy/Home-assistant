@@ -145,10 +145,37 @@ export interface TestConnectionResponse {
   simulated?: boolean;
 }
 
-/** An ESP32 board in cloud mode, as shown in Settings → Network. */
+/** ESP32 pins that are safe for relays (no boot-strapping or flash pins). */
+export const BOARD_SAFE_PINS = [4, 13, 14, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 32, 33] as const;
+/** Pins offered first for relay 1, 2, 3, … */
+export const DEFAULT_RELAY_PINS = [23, 22, 21, 19, 18, 17, 16, 4];
+export const MAX_BOARD_RELAYS = 8;
+export const MAX_BOARD_WIFI = 8;
+
+/** One Wi-Fi network a board may join; the password never leaves the server. */
+export interface BoardWifi {
+  ssid: string;
+  /** 1 = tried first. */
+  priority: number;
+  hasPassword: boolean;
+}
+
+/** What the admin saves for a board (Settings → Boards). */
+export interface BoardSetupInput {
+  name: string;
+  relayPins: number[];
+  relayActiveLow: boolean;
+  /** In priority order. `password` left out = keep the saved one (of `originalSsid`, or the same name). */
+  wifi: { ssid: string; password?: string; originalSsid?: string }[];
+}
+
+/** An ESP32 board in cloud mode, as shown in Settings → Boards. */
 export interface CloudBoard {
   boardId: string;
   name: string | null;
+  relayPins: number[];
+  relayActiveLow: boolean;
+  wifi: BoardWifi[];
   /** Checked in within BOARD_ONLINE_MS. */
   online: boolean;
   /** Has its own sign-in (auth user) linked. */

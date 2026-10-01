@@ -10,6 +10,7 @@ import { AdvancedSettings } from "./AdvancedSettings";
 import { AnimatePresence, motion } from "motion/react";
 import { AccountSettings } from "./AccountSettings";
 import { UsersSettings } from "./UsersSettings";
+import { BoardsSettings } from "./BoardsSettings";
 import { easeApple, springs } from "@/lib/deviceTheme";
 
 interface SettingsViewProps {
@@ -33,6 +34,7 @@ const sections = [
   { id: "account", label: "Account" },
   { id: "general", label: "General" },
   { id: "users", label: "Users" },
+  { id: "boards", label: "Boards" },
   { id: "network", label: "Network" },
   { id: "devices", label: "Devices" },
   { id: "controller", label: "Controller" },
@@ -61,7 +63,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     <div className="max-w-2xl space-y-6">
       <div className="no-scrollbar -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
         <div className="flex min-w-max select-none rounded-[10px] bg-white/[0.06] p-0.5 text-[13px] font-medium sm:min-w-0">
-          {sections.map((sec) => {
+          {sections.filter((sec) => sec.id !== "boards" || currentUserRole === "admin").map((sec) => {
             const isActive = activeSection === sec.id;
             return (
               <button
@@ -103,6 +105,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           {activeSection === "general" && <GeneralSettings currentUserRole={currentUserRole} />}
 
           {activeSection === "users" && currentUserRole === "admin" && <UsersSettings devices={devices} />}
+
+          {activeSection === "boards" && currentUserRole === "admin" && <BoardsSettings showToast={showToast} />}
 
           {activeSection === "network" && (
             <NetworkSettings networkConfig={networkConfig} onSaveNetworkConfig={onSaveNetworkConfig} showToast={showToast} />

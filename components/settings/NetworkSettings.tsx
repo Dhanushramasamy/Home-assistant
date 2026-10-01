@@ -7,7 +7,6 @@ import { AnimatePresence, motion } from "motion/react";
 import { Button } from "@/components/ui/Button";
 import { easeApple } from "@/lib/deviceTheme";
 import { Group, Row, rowInput } from "./Group";
-import { CloudBoards } from "./CloudBoards";
 
 interface NetworkSettingsProps {
   networkConfig: NetworkConfig | null;
@@ -70,8 +69,6 @@ export const NetworkSettings: React.FC<NetworkSettingsProps> = ({
 
   return (
     <form onSubmit={handleSave} className="space-y-8">
-      <CloudBoards />
-
       <Group title="Network">
         <Row label="Name">
           <input type="text" required value={name} onChange={(e) => setName(e.target.value)} className={rowInput} />
