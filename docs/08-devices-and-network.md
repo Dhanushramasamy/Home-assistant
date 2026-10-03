@@ -6,14 +6,13 @@
 
 | | |
 |---|---|
-| Board | ESP32 Dev Module |
-| Relay 1 | GPIO **23** → **Light** (app tile "Light", device id `kitchen-light`) |
-| Relay 2 | GPIO **22** → **Fan** (app tile "Fan", device id `home-fan-1`) |
-| Relay logic | active LOW (`RELAY_ON LOW`) |
-| Wi-Fi | `Dhanush-Wifi-2.4G` (home) |
-| IP | fixed **192.168.1.200**, gateway `192.168.1.1`, subnet `255.255.255.0`, DNS `192.168.1.1` / `8.8.8.8` |
-| HTTP | port 80 |
-| Firmware on the board | **older** than `firmware/esp200/`: no `timerApi`, timers without ids (basic timer mode in the app) |
+| Relay 1 | GPIO **23** → Light |
+| Relay 2 | GPIO **22** → Fan |
+| Relay module | 5 V, active LOW |
+| Firmware | Common template (`firmware/template`), set up as board `esp200`, flashed from the Pi on 2026-10-03 (chip ESP32-D0WD, MAC `b8:d6:1a:14:5c:04`) |
+| Wi-Fi priority | 1. Home `Dhanush-Wifi-2.4G` · 2. `Dhanush's Pixel` hotspot · 3. Airtel office `Airtel_kaly_5220`, all DHCP |
+| Current address | `192.168.1.13` at home (from DHCP; shown in Settings → Boards). It used to be the fixed `192.168.1.200` |
+| Control | Cloud: from any network through Supabase ([13](13-cloud-control.md)) |
 
 ### ESP201 — Erode bedroom
 
@@ -29,9 +28,9 @@
 
 | Device | IP |
 |---|---|
-| Raspberry Pi 5 | `192.168.1.100` (also the default "gateway" IP in the app) |
+| Raspberry Pi 5 | `192.168.1.100` at the office; **`192.168.1.12` at home** (DHCP) |
 | Raspberry Pi 4 | `192.168.1.101` |
-| ESP200 / ESP201 | `.200` (home) / `.131` (DHCP, may change) |
+| ESP201 | `.131` (DHCP, may change) |
 
 ## What can reach what
 
@@ -45,7 +44,7 @@ The ESP32 answers only on its **local network**. Whether the app can control it 
 | Phone on mobile data | ❌ no | `192.168.x.x` addresses only exist inside a home network |
 | Device on the Pixel hotspot while the ESP32 is on home Wi-Fi | ❌ no | Different networks |
 
-This table is about **boards without the cloud** (ESP200 today). A **cloud board** (ESP201) is switched from any of these, including the Vercel site and mobile data, because it keeps its own outbound connection to Supabase ([13](13-cloud-control.md)).
+This table is about **boards without the cloud** (none since 2026-10-03). A **cloud board** (ESP200, ESP201) is switched from any of these, including the Vercel site and mobile data, because it keeps its own outbound connection to Supabase ([13](13-cloud-control.md)).
 
 ## The phone-hotspot problem
 

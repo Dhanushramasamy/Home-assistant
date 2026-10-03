@@ -2,7 +2,7 @@
 
 Arduino sketches for the ESP32 relay controllers used by this app. History and decisions: `../docs/esp32-history.md`. App ↔ firmware contract: `../docs/esp32-timer-firmware.md`.
 
-**New boards (and ESP201 since 2026-10-01) use `template/`**: one sketch for every ESP32, set up in the app (Settings → Boards) and downloaded ready to upload. See `../docs/14-adding-a-board.md`. The folders below are the older per-board sketches, kept for reference.
+**Every board now uses `template/`** (ESP201 since 2026-10-01, ESP200 since 2026-10-03): one sketch for every ESP32, set up in the app (Settings → Boards) and downloaded ready to upload. See `../docs/14-adding-a-board.md`. The folders below are the older per-board sketches, kept for reference.
 
 | Folder | Device | Relays |
 |---|---|---|

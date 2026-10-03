@@ -39,7 +39,7 @@ See [08 · Devices and network](08-devices-and-network.md) for pins and addresse
 
 | Device | Location | Relays | Address |
 |---|---|---|---|
-| **ESP200** | Home bedroom | Relay 1 → Light (GPIO 23), Relay 2 → Fan (GPIO 22) | `192.168.1.200` on `Dhanush-Wifi-2.4G`. Old direct-IP sketch; not on the cloud yet |
+| **ESP200** | Home bedroom | Relay 1 → Light (GPIO 23), Relay 2 → Fan (GPIO 22) | **Cloud board** on the common template (since 2026-10-03). Wi-Fi by priority (home → Pixel → Airtel), address from DHCP (now `192.168.1.13` at home) |
 | **ESP201** | Erode bedroom | Relay 1 (GPIO 23) | **Cloud board** on the common template (since 2026-10-01). Wi-Fi by priority (Pixel → home → Airtel), address from DHCP (now `192.168.1.131` on Airtel) |
 
 In the app, **each relay is its own tile**: ESP200 appears as two tiles, "Light" (relay 1) and "Fan" (relay 2), which share one IP address.
@@ -54,7 +54,7 @@ In the app, **each relay is its own tile**: ESP200 appears as two tiles, "Light"
 ## Where it runs
 
 - **Locally:** `npm run dev` on the laptop at `http://localhost:3000`. This is the only way that always reaches the ESP32s, because the laptop is on the same Wi-Fi.
-- **Vercel:** `https://prp-home-assistant.vercel.app` (functions in Sydney, next to the database). Everything works from any network for **cloud boards** (ESP201), which talk to Supabase ([13](13-cloud-control.md)). Boards without the cloud (ESP200 today) still need the same Wi-Fi.
+- **Vercel:** `https://prp-home-assistant.vercel.app` (functions in Sydney, next to the database). Everything works from any network, because both boards (ESP200, ESP201) are cloud boards that talk to Supabase ([13](13-cloud-control.md)).
 
 ## Tech stack
 

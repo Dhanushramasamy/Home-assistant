@@ -107,6 +107,28 @@ Measured afterwards on the live site: the relay switches about 1.3 s after a tap
 - **Where:** `~/Downloads/Add-a-new-ESP32-board.pdf` and `docs/private/guide/` (git-ignored, because it shows usernames, Wi-Fi names and IPs). See [16 · Admin guide](16-admin-guide.md).
 - **How the screenshots were taken:** headless Chrome on the live site. Fields were only typed in, never saved.
 
+## 3 October 2026: ESP200 moved to the cloud
+
+Done at home with the Mac and the Pi 5 on home Wi-Fi.
+
+- **Addresses at home:** Mac `192.168.1.10`; the Pi is at **`192.168.1.12`** (found by scanning for SSH; its office address `.100` doesn't apply at home).
+- **Before:** ESP200 answered at `192.168.1.200` with both relays OFF and no timers, so nothing was lost by reflashing.
+- **Wi-Fi password:** ESP200's home password (from its old sketch on the Pi) matched the one already saved, so it was reused.
+- **Board `esp200` created** (same steps as the Boards screen):
+  - label "ESP200 · Home bedroom";
+  - 2 relays on GPIO 23 (Light) and GPIO 22 (Fan), switching on LOW;
+  - Wi-Fi: 1. `Dhanush-Wifi-2.4G`, 2. `Dhanush's Pixel`, 3. `Airtel_kaly_5220`;
+  - its own cloud login.
+- **Flashed:** code downloaded from the live app and flashed through the Pi (chip ESP32-D0WD, MAC `b8:d6:1a:14:5c:04`).
+- **Online:** it came online on home Wi-Fi at **`192.168.1.13`** (address from the router).
+- **Switches linked:** the existing Light (relay 1) and Fan (relay 2) switches now use board `esp200`, with no IP.
+- **Live-site test:**
+  - Light: relay switched in 1.3 s, confirmed in 4.1 s;
+  - Fan: relay switched in 1.0 s, confirmed in 3.7 s;
+  - a Fan timer added and cancelled in about 3 s each;
+  - both are OFF again.
+- **ESP201** shows offline while it's not powered (it was on the Pi's USB at the office).
+
 ## State at the end of 1 October
 
 | Item | State |
@@ -116,4 +138,4 @@ Measured afterwards on the live site: the relay switches about 1.3 s after a tap
 | Database | `users`, `boards`, `switches`, `access` (+ unrelated `linear_*` tables) |
 | Live app | `prp-home-assistant.vercel.app`, functions in `syd1` |
 | Pi 5 | No logger running; `~/Arduino/libraries` has WebSockets + ArduinoJson; `~/Arduino/boards/esp201` holds ESP201's downloaded code |
-| To do by the user | Add `CRON_SECRET` in Vercel; change the Pi password (it was shared in chat); move ESP200 to the cloud |
+| To do by the user | Add `CRON_SECRET` in Vercel; change the Pi password (it was shared in chat); ~~move ESP200 to the cloud~~ (done 3 Oct) |

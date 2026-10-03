@@ -3,8 +3,7 @@
 ## Do next (in order)
 
 1. **Add `CRON_SECRET` in Vercel** (any long random text) so the daily keep-alive runs and the free Supabase project never pauses.
-2. **Move ESP200 to the cloud:** at home, Settings → Boards → Add board `esp200` (2 relays, GPIO 23/22, home Wi-Fi), download, upload by USB, then set **Board** = `esp200` on its Light and Fan switches ([16](16-admin-guide.md)). This also gives it full timers.
-3. **Security clean-up:**
+2. **Security clean-up:**
    - change the admin password;
    - change the Pi password;
    - delete the public ChatGPT share link;
@@ -34,7 +33,6 @@
 
 | Issue | Impact | Plan |
 |---|---|---|
-| ESP200 not on the cloud | Works only on home Wi-Fi; basic timers | Move it to the template (step 2 above) |
 | Board firmware uses 90 % of flash | Room for little more | Bigger app partition when adding features |
 | Cloud confirmation takes 2–3 s | The loader spins that long | New TLS connection per report; kept connections hung (see above) |
 | Closing the serial port can leave ESP201 in upload mode | Board offline until reset | Press EN/RST; avoid serial loggers on installed boards |
