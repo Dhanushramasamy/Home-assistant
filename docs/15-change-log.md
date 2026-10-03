@@ -128,6 +128,11 @@ Done at home with the Mac and the Pi 5 on home Wi-Fi.
   - a Fan timer added and cancelled in about 3 s each;
   - both are OFF again.
 - **ESP201** shows offline while it's not powered (it was on the Pi's USB at the office).
+- **Pi addresses:** the Pi's fixed `.100` was set only on the Airtel Wi-Fi profile; at home it got `.12` by DHCP.
+  - The home profile `Dhanush-Wifi-5g` now uses a fixed `192.168.1.100` (gateway `192.168.1.1`, DNS from the ISP + 8.8.8.8). `.100` was checked to be free first.
+  - The Pixel hotspot profile was changed from a fixed `10.196.10.100` (which breaks when the hotspot changes range) to automatic.
+  - Checked afterwards: SSH, internet and DNS work at `.100`.
+  - If the home router ever hands `.100` to another device, reserve it for the Pi in the router.
 
 ## State at the end of 1 October
 

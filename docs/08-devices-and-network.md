@@ -28,7 +28,7 @@
 
 | Device | IP |
 |---|---|
-| Raspberry Pi 5 | `192.168.1.100` at the office; **`192.168.1.12` at home** (DHCP) |
+| Raspberry Pi 5 | **`192.168.1.100`** at the office (`Airtel_kaly_5220`) and at home (`Dhanush-Wifi-5g`), fixed per Wi-Fi in NetworkManager; automatic (DHCP) on the Pixel hotspot |
 | Raspberry Pi 4 | `192.168.1.101` |
 | ESP201 | `.131` (DHCP, may change) |
 
