@@ -26,6 +26,9 @@
 | App slow, taps take several seconds | Server far from the database | Keep `vercel.json` `regions` = `syd1` (database is in Sydney) |
 | Board answers ping but not `/status`, check-ins stop | Old firmware: cloud work blocked the main loop | Flash the current `firmware/esp201` (cloud work runs on its own core) |
 | Serial log on the Pi | Opening the USB port restarts the board | Expected with this board's auto-reset; read the boot log |
+| Timers gone after a restart | Board on firmware before 2026-10-03 (timers only in memory) | Download the board's code again and upload it (timers are now saved) |
+| "Last restart: power dip" in Settings → Boards | The board's 5V sagged (relay coils, weak USB port or adapter) | Separate 5V supply for the relay module; a good adapter |
+| Pi loses the ESP32's USB (`/dev/ttyUSB0` gone) when the ESP32 restarts | ESP32 + relays draw too much from the Pi's USB at start-up | Unplug and replug; power the relay module separately; use the official Pi 5 supply |
 | Board joins no Wi-Fi after flashing | Wrong Wi-Fi password in `secrets.h` | Compare with the working sketch; ESP201's Airtel password was wrong in the imported copy (fixed 2026-09-30) |
 
 ## Timers

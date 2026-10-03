@@ -62,7 +62,12 @@ ESP201 moved to the template this way on 2026-10-01. Its old sketch in `firmware
 - **Relays:** each restores its last state after a power cut.
 - **App control:** cloud control from any network ([13](13-cloud-control.md)).
 - **Local control:** the HTTP API on the same Wi-Fi (`/status`, `/on`, `/off`, `/toggle`, `/timer…`), compatible with the app.
-- **Timers:** up to 10, kept by the board.
+- **Timers:** up to 10, kept by the board and **saved in flash with their real end time**. After a power cut or restart:
+  - a timer still to come is put back;
+  - one missed by up to 10 min runs its action at once;
+  - an older one-shot timer is dropped;
+  - repeating timers keep their rhythm.
+- **Restart reason:** `/status` reports why it last restarted (`reset`: power on, power dip, crash, watchdog, reset button), a start counter (`boots`) and `timersAfterRestart`. Settings → Boards shows it.
 
 ## Where things are stored
 

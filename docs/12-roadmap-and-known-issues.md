@@ -3,7 +3,9 @@
 ## Do next (in order)
 
 1. **Add `CRON_SECRET` in Vercel** (any long random text) so the daily keep-alive runs and the free Supabase project never pauses.
-2. **Security clean-up:**
+2. **Upload the latest code to ESP201** (saved timers, restart reason): Settings → Boards → esp201 → Download code → upload by USB.
+3. **Power:** a separate 5V supply for the relay modules, and the official Pi 5 power supply. The Pi restarted by itself, and its USB dropped when the ESP32 restarted.
+4. **Security clean-up:**
    - change the admin password;
    - change the Pi password;
    - delete the public ChatGPT share link;

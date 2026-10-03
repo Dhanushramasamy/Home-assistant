@@ -134,6 +134,44 @@ Done at home with the Mac and the Pi 5 on home Wi-Fi.
   - Checked afterwards: SSH, internet and DNS work at `.100`.
   - If the home router ever hands `.100` to another device, reserve it for the Pi in the router.
 
+## 3 October 2026: timer review
+
+**Report:** "the timer isn't working".
+
+**Checked end to end:**
+- through the server: create, run and cancel;
+- through the real app screen, in a headless browser on the live site: set "Turn ON after 10 s" → countdown → the Light turned ON.
+
+Both worked. A first test also showed the Light was already ON, which hid the effect of an ON timer.
+
+**Real gaps found:**
+- **Timers lived only in the ESP32's memory,** so any restart deleted them.
+- **No record of why a board restarted.**
+- **A new timer's countdown flashed a wrong number** (e.g. 00:26) for a second, because the 1-second clock was stale while idle.
+- **The browser kept calling an offline cloud board's local address,** which an HTTPS page can't reach anyway.
+
+**Fixed** (`c0c74e4`; template firmware flashed to ESP200 through the Pi):
+- **Saved timers:** each timer is saved in flash with its real end time (internet clock). After a restart:
+  - a timer still to come is put back with the right time left;
+  - one missed by up to 10 min runs its action at once;
+  - an older one-shot timer is dropped;
+  - repeating timers keep their rhythm.
+- **Restart reason:** `/status` and Settings → Boards show the last restart reason (power on, power dip, crash, watchdog, reset button), when it was, a start counter, and timers back / run late / dropped.
+- **Countdown:** catches up at once; a clock older than the sync counts as no time passed.
+- **Cloud switches:** never call the board's local address from the browser.
+
+**Tested on ESP200:**
+- Two Light timers (ON after 240 s, OFF after 255 s), then the board was restarted. Both came back with the right time left ("2 back") and fired on time; the Light ended OFF.
+- When a restart kept the board offline past the due time, the timers ran late in order ("2 run late"), also ending OFF.
+
+**USB and power findings:**
+- The Pi restarted by itself (that power-cycles the ESP32, and explains a "mystery" restart).
+- The Pi's USB link to the ESP32 dropped whenever the ESP32 restarted while on the Pi; the user re-plugged it once.
+- **Likely cause:** the ESP32 and the relay module draw too much from the Pi's USB during start-up.
+- **Advice:** give the relay module, or the ESP32 when installed, its own 5V supply, and use the official Pi 5 power supply.
+
+**ESP201** still runs the earlier template. It gets saved timers after its next upload (Settings → Boards → Download code → upload).
+
 ## State at the end of 1 October
 
 | Item | State |
