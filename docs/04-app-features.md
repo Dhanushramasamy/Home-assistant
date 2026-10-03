@@ -31,7 +31,7 @@
 
 ## Timers
 
-Timers run **on the ESP32**, so they fire even when every phone is closed.
+Timers run **on the ESP32**, so they fire even when every phone is closed, and are saved in its flash so they survive a restart. Full logic: [17 · Timers](17-timers.md).
 
 **Creating one** (only on firmware with Timer API v2):
 - Action: **Turn On** or **Turn Off**.

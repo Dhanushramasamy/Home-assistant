@@ -23,6 +23,7 @@ This folder documents the whole project end to end: how it started, what exists 
 | [13 · Cloud control](13-cloud-control.md) | Switching from any network through Supabase: boards table, security, firmware |
 | [14 · Adding a board](14-adding-a-board.md) | Settings → Boards: set up an ESP32 in the app, download its code, upload it |
 | [15 · Change log](15-change-log.md) | Everything done on 30 Sep – 1 Oct 2026: decisions, fixes, incidents, final state |
+| [17 · Timers](17-timers.md) | How timers work: where they're stored (ESP32 flash, not the database), restore after a restart, restart reason |
 | [16 · Admin guide](16-admin-guide.md) | Step by step for a new ESP32 using only the app and the Pi 5 (illustrated PDF in `docs/private/guide/`) |
 
 ## Reference documents
