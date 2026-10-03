@@ -16,8 +16,10 @@ import { parseTimerEntry, parseTimers, powerForRelay, reasonFromStatus, timerErr
 
 const BROWSER_TIMEOUT_MS = 3000;
 
+// The browser may call the ESP32 itself only for a board without the cloud;
+// a cloud board is always reached through the server.
 function isDirect(device: Device, networkMode?: DeviceMode) {
-  return networkMode !== "gateway" && device.mode !== "gateway";
+  return !device.boardId && networkMode !== "gateway" && device.mode !== "gateway";
 }
 
 interface BrowserResult {
@@ -164,7 +166,8 @@ export async function requestClearTimers(device: Device, networkMode?: DeviceMod
  */
 export function remainingNow(timer: DeviceTimerEntry | undefined, syncedAt: number, now: number): number {
   if (!timer) return 0;
-  const left = timer.remaining - Math.floor((now - syncedAt) / 1000);
+  // A clock older than the sync (just switched on) counts as no time passed.
+  const left = timer.remaining - Math.floor(Math.max(0, now - syncedAt) / 1000);
   if (left > 0) return left;
   if (timer.repeat && timer.seconds) return ((left % timer.seconds) + timer.seconds) % timer.seconds || timer.seconds;
   return 0;

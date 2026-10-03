@@ -185,6 +185,15 @@ export interface CloudBoard {
   rssi: number | null;
   lastSeen: string | null;
   desired: Record<string, string>;
+  /** Last restart, from the board's report (template firmware). */
+  restart?: {
+    reason: string;
+    /** When it restarted (ISO), worked out from its uptime. */
+    at: string | null;
+    boots: number | null;
+    /** Timers put back / run late / dropped after that restart. */
+    timers?: { back: number; late: number; dropped: number };
+  };
 }
 
 export interface ToastMessage {

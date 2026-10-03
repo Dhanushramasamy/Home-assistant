@@ -144,7 +144,21 @@ export async function setBoardRelay(boardId: string, relay: number, power: Exclu
   return data === true;
 }
 
-/** Every board, for Settings → Network. */
+function restartOf(row: BoardRow): CloudBoard["restart"] {
+  const r = row.reported;
+  if (!r || typeof r.reset !== "string") return undefined;
+  const uptime = typeof r.uptime === "number" ? r.uptime : null;
+  const at = uptime !== null && row.reported_at ? new Date(ms(row.reported_at) - uptime * 1000).toISOString() : null;
+  const t = r.timersAfterRestart as { back?: number; late?: number; dropped?: number } | undefined;
+  return {
+    reason: r.reset,
+    at,
+    boots: typeof r.boots === "number" ? r.boots : null,
+    ...(t ? { timers: { back: t.back ?? 0, late: t.late ?? 0, dropped: t.dropped ?? 0 } } : {}),
+  };
+}
+
+/** Every board, for Settings → Boards. */
 export async function listBoards(): Promise<CloudBoard[]> {
   const { data, error } = await supabase.from(BOARD_TABLE).select("*").order("board_id");
   if (isMissingTable(error)) throw new BoardSetupError(BOARD_SETUP_MESSAGE);
@@ -164,6 +178,7 @@ export async function listBoards(): Promise<CloudBoard[]> {
     rssi: row.rssi,
     lastSeen: row.last_seen,
     desired: row.desired ?? {},
+    restart: restartOf(row),
   }));
 }
 

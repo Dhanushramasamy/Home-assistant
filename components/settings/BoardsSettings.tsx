@@ -249,6 +249,23 @@ export const BoardsSettings: React.FC<{ showToast: Toast }> = ({ showToast }) =>
                   </span>
                   <span>Last seen</span>
                   <span className="text-right">{b.linked ? ago(b.lastSeen) : "not set up"}</span>
+                  {b.restart && (
+                    <>
+                      <span>Last restart</span>
+                      <span className={`text-right ${/dip|crash|watchdog/.test(b.restart.reason) ? "text-tint-light" : ""}`}>
+                        {b.restart.reason}
+                        {b.restart.at ? ` · ${ago(b.restart.at)}` : ""}
+                      </span>
+                    </>
+                  )}
+                  {b.restart?.timers && b.restart.timers.back + b.restart.timers.late + b.restart.timers.dropped > 0 && (
+                    <>
+                      <span>Timers after it</span>
+                      <span className="text-right">
+                        {b.restart.timers.back} back · {b.restart.timers.late} run late · {b.restart.timers.dropped} dropped
+                      </span>
+                    </>
+                  )}
                 </div>
               </button>
             ))
