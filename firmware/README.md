@@ -7,6 +7,7 @@ Arduino sketches for the ESP32 relay controllers used by this app. History and d
 | Folder | Device | Relays |
 |---|---|---|
 | `template/` | Every board (common template) | 1–8, pins from the app |
+| `cardputer/` | M5Stack Cardputer **remote** (not a relay board) | — : switches and timers from the keyboard; see `cardputer/README.md` |
 | `esp200/` | ESP200, home bedroom | Relay 1 = GPIO 23 (Light), Relay 2 = GPIO 22 (Fan) |
 | `esp201/` | ESP201, Erode bedroom | Relay 1 = GPIO 23 · cloud control (`cloud.h`, see `../docs/13-cloud-control.md`) |
 

@@ -172,6 +172,18 @@ Both worked. A first test also showed the Light was already ON, which hid the ef
 
 **ESP201** still runs the earlier template. It gets saved timers after its next upload (Settings → Boards → Download code → upload).
 
+## 7–12 October 2026
+
+- **Powering the ESP32 from the wall:**
+  - Advice: an **HLK-5M05** module (230V AC → 5V 1A) inside the switch box, with a 0.5A slow-blow fuse and a 14D471 varistor, feeding the ESP32's VIN and the relay module's VCC.
+  - It needs a Neutral wire in the box; the 230V side is for an electrician.
+- **Cardputer remote** (`firmware/cardputer`), for the M5Stack Cardputer (ESP32-S3):
+  - signs in to the app as a new normal user **`cardputer`** (access to all 3 switches);
+  - lists the switches, switches them (waiting for the board to confirm), and sets or cancels timers from the keyboard.
+- **Built on the Pi 5:** the M5 libraries were copied to the Pi; the first build took about 6 min; 90 % of the app partition.
+- **Delivered as an SD-card `.bin`** for M5Launcher (`~/Downloads/HomeControl-Cardputer.bin` on the Mac, `~/Desktop` on the Pi), so the launcher isn't overwritten.
+- **Found while testing:** the Arduino IDE is no longer installed on the Mac (builds now run on the Pi), and the Pi's disk is down to about 950 MB free.
+
 ## State at the end of 1 October
 
 | Item | State |
