@@ -43,7 +43,7 @@ const int VISIBLE = (H - HEADER - FOOTER) / ROW;   // 5
 struct Rec { String name; uint32_t seconds; };
 std::vector<Rec> recs;
 int selected = 0, scrollTop = 0;
-int volume = 160;
+int volume = 220;
 bool confirmDelete = false;
 bool sdOk = false;
 String message;
@@ -280,15 +280,36 @@ void play(const Rec &r) {
     return;
   }
   uint32_t total = f.size() > 44 ? f.size() - 44 : 0;
+
+  header("Playing " + r.name);
+  D.fillRect(0, HEADER, W, H - HEADER - FOOTER, C_BG);
+  message = ""; footer("Checking loudness...");
+
+  // Find the loudest sample, so quiet recordings can be made louder.
+  f.seek(44);
+  int peak = 0;
+  for (;;) {
+    size_t n = f.read((uint8_t*)buf[0], CHUNK * 2);
+    if (n == 0) break;
+    for (size_t s = 0; s < n / 2; s++) peak = max(peak, (int)abs(buf[0][s]));
+  }
+  int gain = peak > 0 ? constrain(28000 / peak, 1, 32) : 1;
   f.seek(44);
 
   M5Cardputer.Mic.end();
   M5Cardputer.Speaker.begin();
   M5Cardputer.Speaker.setVolume(volume);
+  // Short beep: proves the speaker itself works.
+  M5Cardputer.Speaker.tone(1200, 80);
+  delay(150);
 
-  header("Playing " + r.name);
-  D.fillRect(0, HEADER, W, H - HEADER - FOOTER, C_BG);
   footer("Enter / ` to stop  -/= vol");
+  D.fillRect(0, HEADER, W, H - HEADER - FOOTER, C_BG);
+  D.setFont(&fonts::DejaVu9);
+  D.setTextDatum(middle_center);
+  D.setTextColor(peak < 200 ? C_RED : C_MUTED, C_BG);
+  D.drawString(peak < 200 ? "Recording is silent (mic gave no sound)"
+                          : "Loudness x" + String(gain), W / 2, 105);
 
   uint32_t played = 0;
   int i = 0;
@@ -299,6 +320,12 @@ void play(const Rec &r) {
     int16_t* b = buf[i % BUFFERS];
     size_t n = f.read((uint8_t*)b, CHUNK * 2);
     if (n == 0) break;
+    int level = 0;
+    for (size_t s = 0; s < n / 2; s++) {
+      int v = constrain((int)b[s] * gain, -32768, 32767);
+      b[s] = v;
+      level = max(level, abs(v));
+    }
     // Wait until the speaker has room for another block.
     while (M5Cardputer.Speaker.isPlaying(0) == 2) {
       delay(1);
@@ -315,6 +342,8 @@ void play(const Rec &r) {
       D.drawString(mmss(played / (RATE * 2)) + " / " + mmss(total / (RATE * 2)), W / 2, 55);
       D.fillRect(20, 85, W - 40, 8, C_CARD);
       D.fillRect(20, 85, total ? (uint64_t)(W - 40) * played / total : 0, 8, C_LIME);
+      D.fillRect(20, 96, W - 40, 3, C_CARD);
+      D.fillRect(20, 96, level * (W - 40) / 32768, 3, C_INK);
     }
 
     M5Cardputer.update();
