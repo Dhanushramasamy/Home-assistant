@@ -61,5 +61,4 @@ WiFi.reconnect();
 Serial.print("Hotspot IP: ");
 Serial.println(WiFi.localIP());
 ```
-| `ir-ac-remote/` | **AC remote** (Panasonic / LG / Toshiba) — builds the full AC frame (power/temp/mode/fan) with IRremoteESP8266 and sends it on G44. Brand row selects the protocol; Panasonic has a Model row (RKR works). Supersedes the Panasonic-only app. Build with esp32 core 3.2.0 |
-| `ir-blaster/` | **IR blaster** — browse the SD card, open any Flipper `.ir` file, send its buttons on G44. Plays the RAW recorded signal, so it uses your real remote capture (reliable for Toshiba ACs, TVs, the whole Flipper-IRDB). Build with esp32 core 3.2.0 |
+| `ir-remote/` | **IR Remote (all-in-one)** — home menu with **AC Remote** (Panasonic/LG/Toshiba encoder, full power/temp/mode/fan, per-brand Model variants) and **IR Files** (browse the SD, send any raw Flipper `.ir` incl. the whole Flipper-IRDB and your captures). Sends on G44. Supersedes `ir-ac-remote` + `ir-blaster`. Build with esp32 core 3.2.0 |
