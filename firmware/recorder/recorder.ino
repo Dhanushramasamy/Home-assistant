@@ -204,6 +204,21 @@ bool stopPressed() {
 
 // A recorded block holds CHUNK samples as left/right pairs. Keep the louder
 // channel, packed into the first half of the block; returns the sample count.
+// Removes the constant offset (DC) the ADV mic adds, which hides the voice on
+// the small speaker and stops the loudness boost from working.
+struct DcBlock {
+  float x1 = 0, y1 = 0;
+  bool started = false;
+  int16_t run(int16_t x) {
+    if (!started) { x1 = x; started = true; }
+    float y = x - x1 + 0.995f * y1;
+    x1 = x;
+    y1 = y;
+    return (int16_t)constrain((int)y, -32768, 32767);
+  }
+};
+DcBlock recDc;
+
 int lastL = 0, lastR = 0, lastPeak = 0;
 size_t toMono(int16_t* b) {
   int pl = 0, pr = 0;
@@ -212,8 +227,12 @@ size_t toMono(int16_t* b) {
     pr = max(pr, abs((int)b[s + 1]));
   }
   int ch = pl >= pr ? 0 : 1;
-  for (size_t s = 0; s < CHUNK / 2; s++) b[s] = b[s * 2 + ch];
-  lastL = pl; lastR = pr; lastPeak = max(pl, pr);
+  int peak = 0;
+  for (size_t s = 0; s < CHUNK / 2; s++) {
+    b[s] = recDc.run(b[s * 2 + ch]);
+    peak = max(peak, abs((int)b[s]));
+  }
+  lastL = pl; lastR = pr; lastPeak = peak;
   return CHUNK / 2;
 }
 
@@ -239,6 +258,7 @@ void record() {
   auto mc = M5Cardputer.Mic.config();
   mc.input_channel = m5::input_stereo;
   M5Cardputer.Mic.config(mc);
+  recDc = DcBlock();
   bool micOk = M5Cardputer.Mic.begin();
   bool adv = M5.getBoard() == m5::board_t::board_M5CardputerADV;
   const char* model = M5.getBoard() == m5::board_t::board_M5CardputerADV ? "Cardputer ADV"
@@ -322,11 +342,12 @@ void play(const Rec &r) {
 
   // Find the loudest sample, so quiet recordings can be made louder.
   f.seek(44);
+  DcBlock scanDc, playDc;
   int peak = 0;
   for (;;) {
     size_t n = f.read((uint8_t*)buf[0], CHUNK * 2);
     if (n == 0) break;
-    for (size_t s = 0; s < n / 2; s++) peak = max(peak, (int)abs(buf[0][s]));
+    for (size_t s = 0; s < n / 2; s++) peak = max(peak, abs((int)scanDc.run(buf[0][s])));
   }
   int gain = peak > 0 ? constrain(28000 / peak, 1, 32) : 1;
   f.seek(44);
@@ -357,7 +378,7 @@ void play(const Rec &r) {
     if (n == 0) break;
     int level = 0;
     for (size_t s = 0; s < n / 2; s++) {
-      int v = constrain((int)b[s] * gain, -32768, 32767);
+      int v = constrain((int)playDc.run(b[s]) * gain, -32768, 32767);
       b[s] = v;
       level = max(level, abs(v));
     }
