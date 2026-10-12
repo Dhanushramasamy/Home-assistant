@@ -61,3 +61,4 @@ WiFi.reconnect();
 Serial.print("Hotspot IP: ");
 Serial.println(WiFi.localIP());
 ```
+| `ir-panasonic-ac/` | **Panasonic AC remote** — builds the correct Panasonic IR frame (power/temp/mode/fan) with IRremoteESP8266 and sends it on G44. Switch the Model row (DKE/NKE/LKE/JKE/CKP/RKR) to match your unit. Build with esp32 core 3.2.0 |
