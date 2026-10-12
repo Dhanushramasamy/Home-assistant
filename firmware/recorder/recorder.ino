@@ -201,6 +201,21 @@ bool stopPressed() {
   return false;
 }
 
+// A recorded block holds CHUNK samples as left/right pairs. Keep the louder
+// channel, packed into the first half of the block; returns the sample count.
+int lastL = 0, lastR = 0, lastPeak = 0;
+size_t toMono(int16_t* b) {
+  int pl = 0, pr = 0;
+  for (size_t s = 0; s < CHUNK; s += 2) {
+    pl = max(pl, abs((int)b[s]));
+    pr = max(pr, abs((int)b[s + 1]));
+  }
+  int ch = pl >= pr ? 0 : 1;
+  for (size_t s = 0; s < CHUNK / 2; s++) b[s] = b[s * 2 + ch];
+  lastL = pl; lastR = pr; lastPeak = max(pl, pr);
+  return CHUNK / 2;
+}
+
 // ES8311 sound chip on the Cardputer ADV (I2C address 0x18).
 void boostAdvMic() {
   M5.In_I2C.writeRegister8(0x18, 0x14, 0x1A, 100000);  // mic input 1, analog gain +30 dB (max)
@@ -219,6 +234,10 @@ void record() {
   f.write((uint8_t*)&hdr, sizeof(hdr));
 
   M5Cardputer.Speaker.end();
+  // Listen on both I2S channels: the ADV's sound chip may send on either.
+  auto mc = M5Cardputer.Mic.config();
+  mc.input_channel = m5::input_stereo;
+  M5Cardputer.Mic.config(mc);
   bool micOk = M5Cardputer.Mic.begin();
   bool adv = M5.getBoard() == m5::board_t::board_M5CardputerADV;
   const char* model = M5.getBoard() == m5::board_t::board_M5CardputerADV ? "Cardputer ADV"
@@ -235,18 +254,17 @@ void record() {
 
   while (!stop) {
     // Queue the next block; the block two back is finished and can be saved.
-    M5Cardputer.Mic.record(buf[i % BUFFERS], CHUNK, RATE);
+    M5Cardputer.Mic.record(buf[i % BUFFERS], CHUNK, RATE, true);
     // The ADV's sound chip (ES8311) starts its mic at minimum gain: almost silent.
     // Once the mic is running, turn the gain up.
     if (adv && i == 1) boostAdvMic();
     if (i >= 2) {
       int16_t* done = buf[(i - 2) % BUFFERS];
-      written += f.write((uint8_t*)done, CHUNK * 2);
+      written += f.write((uint8_t*)done, toMono(done) * 2);
 
       if (millis() - lastDraw > 200) {
         lastDraw = millis();
-        int peak = 0;
-        for (size_t s = 0; s < CHUNK; s++) peak = max(peak, (int)abs(done[s]));
+        int peak = lastPeak;
         int level = min(W - 40, peak * (W - 40) / 12000);
         D.fillCircle(24, 52, 9, (millis() / 500) % 2 ? C_RED : C_BG);
         D.setFont(&fonts::DejaVu24);
@@ -261,7 +279,7 @@ void record() {
         // Diagnostics: model, mic start result, loudest raw sample.
         D.setTextDatum(middle_left);
         D.setTextColor(micOk ? C_MUTED : C_RED, C_BG);
-        D.drawString(String(model) + "  mic " + (micOk ? "on" : "FAILED") + "  peak " + String(peak) + "     ", 20, 108);
+        D.drawString(String(model) + "  mic " + (micOk ? "on" : "FAILED") + "  L " + String(lastL) + " R " + String(lastR) + "     ", 20, 108);
       }
     }
     i++;
@@ -270,7 +288,7 @@ void record() {
 
   // Save the last two blocks.
   while (M5Cardputer.Mic.isRecording()) delay(1);
-  for (int k = max(0, i - 2); k < i; k++) written += f.write((uint8_t*)buf[k % BUFFERS], CHUNK * 2);
+  for (int k = max(0, i - 2); k < i; k++) written += f.write((uint8_t*)buf[k % BUFFERS], toMono(buf[k % BUFFERS]) * 2);
   M5Cardputer.Mic.end();
 
   hdr.dataSize = written;
