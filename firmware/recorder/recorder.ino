@@ -23,6 +23,8 @@
 #include <SPI.h>
 #include <SD.h>
 #include <vector>
+#include <esp_ota_ops.h>
+#include <esp_partition.h>
 
 #define SD_SCK 40
 #define SD_MISO 39
@@ -152,7 +154,7 @@ void drawList() {
       D.drawString(mmss(recs[i].seconds), W - 8, y + ROW / 2);
     }
   }
-  footer(confirmDelete ? "Del again to delete, any key to keep" : "r rec  Enter play  Del delete  -/= vol");
+  footer(confirmDelete ? "Del again to delete, any key to keep" : "r rec  Enter play  Del del  ` launcher");
 }
 
 
@@ -422,6 +424,15 @@ void play(const Rec &r) {
 }
 
 
+// Sends the Cardputer back to the Dhanush Launcher: set the launcher (factory)
+// slot as boot and restart. Harmless if run standalone (reboots this app).
+void returnToLauncher() {
+  const esp_partition_t* f = esp_partition_find_first(
+      ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_FACTORY, NULL);
+  if (f) esp_ota_set_boot_partition(f);
+  esp_restart();
+}
+
 // ============================================================
 // SETUP / LOOP
 // ============================================================
@@ -476,7 +487,8 @@ void loop() {
       }
     } else {
       confirmDelete = false;
-      if (c == 'r' && sdOk) record();
+      if (c == '`') returnToLauncher();
+      else if (c == 'r' && sdOk) record();
       else if (c == ';' && selected > 0) selected--;
       else if (c == '.' && selected < (int)recs.size() - 1) selected++;
       else if (k.enter && !recs.empty()) play(recs[selected]);
@@ -490,7 +502,7 @@ void loop() {
   if (changed) drawList();
   else if (millis() - lastFooter > 1000) {
     lastFooter = millis();
-    footer(confirmDelete ? "Del again to delete, any key to keep" : "r rec  Enter play  Del delete  -/= vol");
+    footer(confirmDelete ? "Del again to delete, any key to keep" : "r rec  Enter play  Del del  ` launcher");
   }
   delay(10);
 }
