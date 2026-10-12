@@ -61,3 +61,4 @@ WiFi.reconnect();
 Serial.print("Hotspot IP: ");
 Serial.println(WiFi.localIP());
 ```
+| `launcher/` | **Dhanush Launcher** — our own Cardputer launcher: lists `.bin` apps on the SD card and boots the chosen one (copies it into the `ota_0` slot via esp_ota, like M5Launcher). Lives in the `factory` slot. **First install is USB from the Pi** (sets the memory layout in `partitions.csv`); after that, apps load from SD. Build with esp32 core 3.2.0, `FlashSize=8M, PartitionScheme=custom` |
