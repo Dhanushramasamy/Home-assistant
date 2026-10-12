@@ -14,7 +14,8 @@
     -  =               volume down / up
 
   Files: /recordings/REC_0001.wav, REC_0002.wav, ... on the SD card.
-  Board: M5Cardputer (esp32:esp32:m5stack_cardputer). Libraries: M5Cardputer,
+  Board: M5Cardputer (esp32:esp32:m5stack_cardputer), esp32 core 3.2.0: on the
+  Cardputer ADV, core 3.3.x (IDF 5.5) gives a silent mic. Libraries: M5Cardputer,
   M5Unified, M5GFX.
 */
 
@@ -218,8 +219,8 @@ size_t toMono(int16_t* b) {
 
 // ES8311 sound chip on the Cardputer ADV (I2C address 0x18).
 void boostAdvMic() {
-  M5.In_I2C.writeRegister8(0x18, 0x14, 0x1A, 100000);  // mic input 1, analog gain +30 dB (max)
-  M5.In_I2C.writeRegister8(0x18, 0x17, 0xDF, 100000);  // digital volume +16 dB
+  M5.In_I2C.writeRegister8(0x18, 0x14, 0x16, 100000);  // mic input 1, analog gain +18 dB
+  M5.In_I2C.writeRegister8(0x18, 0x17, 0xBF, 100000);  // digital volume 0 dB
 }
 
 void record() {
