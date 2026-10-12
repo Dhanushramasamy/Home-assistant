@@ -201,6 +201,12 @@ bool stopPressed() {
   return false;
 }
 
+// ES8311 sound chip on the Cardputer ADV (I2C address 0x18).
+void boostAdvMic() {
+  M5.In_I2C.writeRegister8(0x18, 0x14, 0x1A, 100000);  // mic input 1, analog gain +30 dB (max)
+  M5.In_I2C.writeRegister8(0x18, 0x17, 0xDF, 100000);  // digital volume +16 dB
+}
+
 void record() {
   String name = nextName();
   String path = String(DIR) + "/" + name;
@@ -213,7 +219,10 @@ void record() {
   f.write((uint8_t*)&hdr, sizeof(hdr));
 
   M5Cardputer.Speaker.end();
-  M5Cardputer.Mic.begin();
+  bool micOk = M5Cardputer.Mic.begin();
+  bool adv = M5.getBoard() == m5::board_t::board_M5CardputerADV;
+  const char* model = M5.getBoard() == m5::board_t::board_M5CardputerADV ? "Cardputer ADV"
+                    : M5.getBoard() == m5::board_t::board_M5Cardputer    ? "Cardputer" : "unknown";
 
   header("Recording");
   D.fillRect(0, HEADER, W, H - HEADER - FOOTER, C_BG);
@@ -227,6 +236,9 @@ void record() {
   while (!stop) {
     // Queue the next block; the block two back is finished and can be saved.
     M5Cardputer.Mic.record(buf[i % BUFFERS], CHUNK, RATE);
+    // The ADV's sound chip (ES8311) starts its mic at minimum gain: almost silent.
+    // Once the mic is running, turn the gain up.
+    if (adv && i == 1) boostAdvMic();
     if (i >= 2) {
       int16_t* done = buf[(i - 2) % BUFFERS];
       written += f.write((uint8_t*)done, CHUNK * 2);
@@ -246,6 +258,10 @@ void record() {
         D.drawString(name, 44, 72);
         D.fillRect(20, 90, W - 40, 8, C_CARD);
         D.fillRect(20, 90, level, 8, level > (W - 40) * 0.85 ? C_RED : C_LIME);
+        // Diagnostics: model, mic start result, loudest raw sample.
+        D.setTextDatum(middle_left);
+        D.setTextColor(micOk ? C_MUTED : C_RED, C_BG);
+        D.drawString(String(model) + "  mic " + (micOk ? "on" : "FAILED") + "  peak " + String(peak) + "     ", 20, 108);
       }
     }
     i++;
