@@ -26,6 +26,7 @@ interface BoardRow {
   // From supabase/board_setup.sql (missing before it's run).
   relay_pins?: number[] | null;
   relay_active_low?: boolean | null;
+  servo_pin?: number | null;
   wifi?: { ssid: string; priority: number; password?: string | null }[] | null;
 }
 
@@ -168,6 +169,7 @@ export async function listBoards(): Promise<CloudBoard[]> {
     name: row.name,
     relayPins: row.relay_pins ?? [],
     relayActiveLow: row.relay_active_low !== false,
+    servoPin: row.servo_pin ?? null,
     wifi: [...(row.wifi ?? [])]
       .sort((a, b) => a.priority - b.priority)
       .map((w) => ({ ssid: w.ssid, priority: w.priority, hasPassword: !!w.password })),
@@ -202,7 +204,8 @@ export async function allBoardStates(): Promise<Map<string, BoardState>> {
 export type BoardCommand =
   | { op: "timer"; relay: number; action: "on" | "off"; seconds: number; repeat: boolean }
   | { op: "cancel"; id: number }
-  | { op: "cancel_relay"; relay: number };
+  | { op: "cancel_relay"; relay: number }
+  | { op: "servo"; angle: number; speed: number };
 
 export interface BoardAck {
   seq: number;

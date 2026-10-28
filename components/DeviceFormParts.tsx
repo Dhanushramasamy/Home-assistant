@@ -2,8 +2,8 @@
 
 import React from "react";
 import { motion } from "motion/react";
-import { DeviceMode, DeviceType } from "@/types";
-import { Lightbulb, Fan, Plug, Cpu } from "lucide-react";
+import { CloudBoard, DeviceMode, DeviceType } from "@/types";
+import { Lightbulb, Fan, Plug, Cpu, Rotate3D } from "lucide-react";
 import { deviceAccent, springs } from "@/lib/deviceTheme";
 
 /** iOS form-sheet header: Cancel · Title · Confirm (submits the form). */
@@ -35,7 +35,7 @@ export const FormGroup: React.FC<{ caption?: string; footer?: React.ReactNode; c
 }) => (
   <section>
     {caption && <p className="mb-1.5 px-4 text-[13px] text-muted">{caption}</p>}
-    <div className="divide-y divide-line overflow-hidden rounded-[14px] bg-white/[0.06]">{children}</div>
+    <div className="divide-y divide-line overflow-hidden rounded-[14px] border border-white/[0.12] bg-[#202126]/95 shadow-[0_12px_32px_rgba(0,0,0,0.28)]">{children}</div>
     {footer && <div className="mt-1.5 px-4 text-[13px]">{footer}</div>}
   </section>
 );
@@ -53,32 +53,48 @@ export function cleanBoardId(value: string): string | null {
   return id || null;
 }
 
-/** Cloud board this relay belongs to. With one, the app switches it through Supabase from any network. */
-export const BoardField: React.FC<{ value: string; onChange: (value: string) => void }> = ({ value, onChange }) => (
+/** Select an existing cloud board. Add new boards in Settings → Boards first. */
+export const BoardField: React.FC<{
+  value: string;
+  onChange: (value: string) => void;
+  boards: CloudBoard[];
+  servoOnly?: boolean;
+  loading?: boolean;
+}> = ({ value, onChange, boards, servoOnly = false, loading = false }) => {
+  const options = servoOnly ? boards.filter((board) => board.servoPin !== null) : boards;
+  const missingSelection = value && !boards.some((board) => board.boardId === value);
+  return (
   <FormGroup
     caption="Board"
     footer={
       <span className="text-muted">
-        {value.trim()
-          ? "The board's name from Settings → Boards. Works from any network; no IP needed."
-          : "The board's name from Settings → Boards (e.g. esp202). Leave empty only for a board without cloud, then enter its IP."}
+        {servoOnly
+          ? options.length
+            ? "Choose a board with a servo pin set in Settings → Boards. To add a new board, add it there first, then reopen this form."
+            : "No servo-enabled board found. Add a board and set its servo pin in Settings → Boards, then reopen this form."
+          : "Choose a board already added in Settings → Boards. Add new boards there first. Choose Direct IP for a device without cloud control."}
       </span>
     }
   >
     <FormRow label="Board">
-      <input
-        type="text"
+      <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="None"
-        autoCapitalize="none"
-        autoCorrect="off"
-        spellCheck={false}
-        className={`${rowInput} font-mono`}
-      />
+        className={`${rowSelect} max-w-[70%] truncate`}
+        aria-label="Choose ESP32 board"
+      >
+        <option value="">{loading ? "Loading boards…" : servoOnly ? "Choose servo board" : "Direct IP / no board"}</option>
+        {missingSelection && <option value={value}>{value} (not found)</option>}
+        {options.map((board) => (
+          <option key={board.boardId} value={board.boardId}>
+            {board.name || board.boardId} · {board.boardId}{board.online ? " · Online" : " · Offline"}{servoOnly ? ` · GPIO ${board.servoPin}` : ""}
+          </option>
+        ))}
+      </select>
     </FormRow>
   </FormGroup>
-);
+  );
+};
 
 export const rowInput =
   "w-full bg-transparent text-right text-[17px] text-ink placeholder:text-dim focus:outline-none";
@@ -90,10 +106,11 @@ const typeOptions = [
   { id: "fan", label: "Fan", icon: Fan },
   { id: "plug", label: "Plug", icon: Plug },
   { id: "other", label: "Other", icon: Cpu },
+  { id: "servo", label: "Servo", icon: Rotate3D },
 ] as const;
 
 export const TypePicker: React.FC<{ value: DeviceType; onChange: (t: DeviceType) => void }> = ({ value, onChange }) => (
-  <div className="grid grid-cols-4 gap-2 px-2 py-4">
+  <div className="grid grid-cols-5 gap-2 px-2 py-4">
     {typeOptions.map((item) => {
       const selected = value === item.id;
       return (

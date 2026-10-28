@@ -36,23 +36,24 @@ On the Pi, open the browser, go to `prp-home-assistant.vercel.app` and sign in a
 | 4 | Relay 1 pin | `GPIO 23` | Pin wired to IN1 |
 | 5 | Relay 2 pin | `GPIO 22` | Pin wired to IN2 |
 | 6 | Relay turns on when pin is | `LOW` | Right for most modules. If relays are ON when the app says OFF, change to HIGH and upload again |
+| 7 | Servo signal pin | `GPIO 18` or Disabled | Optional. Use a free pin connected to the servo signal wire |
 
 ## 4. Add its Wi-Fi networks
 
 | # | Control | What it does |
 |---|---|---|
-| 7 | Priority 1, 2, … | The order the board tries networks in: 1 first |
-| 8 | Wi-Fi name | Exactly as your phone shows it. The ESP32 only sees 2.4 GHz Wi-Fi |
-| 9 | Password | 8–63 characters, stored encrypted. "Saved — type to change" means a password is saved; leave the field empty to keep it |
-| 10 | ↑ ↓ | Change a network's priority |
-| 11 | Remove | Delete a network |
-| 12 | + Add Wi-Fi | Add another network (up to 8) |
+| 8 | Priority 1, 2, … | The order the board tries networks in: 1 first |
+| 9 | Wi-Fi name | Exactly as your phone shows it. The ESP32 only sees 2.4 GHz Wi-Fi |
+| 10 | Password | 8–63 characters, stored encrypted. "Saved — type to change" means a password is saved; leave the field empty to keep it |
+| 11 | ↑ ↓ | Change a network's priority |
+| 12 | Remove | Delete a network |
+| 13 | + Add Wi-Fi | Add another network (up to 8) |
 
 No static IP is needed anywhere. Each Wi-Fi gives the board an address, and the app reaches the board through the cloud.
 
 ## 5. Save and download the code
 
-1. Tap **Save and download code** (13 = Add board / Save, 14 = Save and download code). The board is saved, it gets its own cloud login, and `esp202.zip` goes to the Pi's **Downloads** folder.
+1. Tap **Save and download code** (14 = Add board / Save, 15 = Save and download code). The board is saved, it gets its own cloud login, and `esp202.zip` goes to the Pi's **Downloads** folder.
 2. File Manager → Downloads → right-click the zip → **Extract Here**. You get a folder containing:
 
 | File | What it is |
@@ -109,7 +110,11 @@ Home screen → **+**, once per relay:
 | 5 | Board | `esp202`. With a board, the IP field disappears |
 | 6 | Add | Saves it. Tap the tile to test: the loader confirms in 2–3 s |
 
-## 9. Give people access
+## 9. Add the servo device
+
+If the board has a servo pin configured, tap **+ → Servo**, give it a name and room, choose the board ID (for example `esp201`), and set the ON angle and movement speed. Home ON moves to the saved angle; OFF returns to 0°. Change these values later from Edit Device. The app sends the command through Supabase and shows the position the ESP32 reports back.
+
+## 10. Give people access
 
 Settings → **Users** → for each person, switch on the new switches → **Save**.
 

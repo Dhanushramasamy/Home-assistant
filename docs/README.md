@@ -25,6 +25,8 @@ This folder documents the whole project end to end: how it started, what exists 
 | [15 · Change log](15-change-log.md) | Everything done on 30 Sep – 1 Oct 2026: decisions, fixes, incidents, final state |
 | [17 · Timers](17-timers.md) | How timers work: where they're stored (ESP32 flash, not the database), restore after a restart, restart reason |
 | [16 · Admin guide](16-admin-guide.md) | Step by step for a new ESP32 using only the app and the Pi 5 (illustrated PDF in `docs/private/guide/`) |
+| [Pi 5 and ESP32 handoff](../PI5-ESP32-HARDWARE-HANDOFF.md) | Project story and repeatable guide for Pi access, editing, board setup, servo, relays, and flashing |
+| [Servo page](../app/servo/page.tsx) | Cloud angle control for servo-enabled ESP32 boards |
 
 ## Reference documents
 

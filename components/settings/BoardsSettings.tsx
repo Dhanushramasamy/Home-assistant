@@ -24,6 +24,7 @@ interface Draft {
   name: string;
   relayPins: number[];
   relayActiveLow: boolean;
+  servoPin: number | null;
   wifi: WifiDraft[];
 }
 
@@ -46,6 +47,7 @@ function draftOf(board: CloudBoard): Draft {
     name: board.name ?? board.boardId,
     relayPins: board.relayPins.length ? board.relayPins : [DEFAULT_RELAY_PINS[0]],
     relayActiveLow: board.relayActiveLow,
+    servoPin: board.servoPin,
     wifi: board.wifi.map((w) => ({ key: nextKey++, ssid: w.ssid, password: "", originalSsid: w.ssid, hasPassword: w.hasPassword })),
   };
 }
@@ -59,6 +61,7 @@ function newDraft(boards: CloudBoard[]): Draft {
     name: "",
     relayPins: [DEFAULT_RELAY_PINS[0]],
     relayActiveLow: true,
+    servoPin: 18,
     wifi: [{ key: nextKey++, ssid: "", password: "", hasPassword: false }],
   };
 }
@@ -68,6 +71,7 @@ function inputOf(d: Draft): BoardSetupInput {
     name: d.name,
     relayPins: d.relayPins,
     relayActiveLow: d.relayActiveLow,
+    servoPin: d.servoPin,
     wifi: d.wifi.map((w) => ({
       ssid: w.ssid.trim(),
       // Empty with a saved password = keep it; empty without = open network.
@@ -124,7 +128,7 @@ export const BoardsSettings: React.FC<{ showToast: Toast }> = ({ showToast }) =>
     edit((d) => {
       const pins = d.relayPins.slice(0, count);
       while (pins.length < count) {
-        pins.push(DEFAULT_RELAY_PINS.find((p) => !pins.includes(p)) ?? BOARD_SAFE_PINS.find((p) => !pins.includes(p))!);
+        pins.push(DEFAULT_RELAY_PINS.find((p) => p !== d.servoPin && !pins.includes(p)) ?? BOARD_SAFE_PINS.find((p) => p !== d.servoPin && !pins.includes(p))!);
       }
       return { ...d, relayPins: pins };
     });
@@ -229,26 +233,32 @@ export const BoardsSettings: React.FC<{ showToast: Toast }> = ({ showToast }) =>
                   setDraft(draftOf(b));
                   setDirty(false);
                 }}
-                className="block w-full px-4 py-2.5 text-left text-[15px] transition-colors hover:bg-white/[0.08]"
+                className="block w-full px-4 py-4 text-left text-[15px] transition-colors hover:bg-white/[0.055]"
               >
                 <div className="flex items-center justify-between gap-3">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <span className={`h-2 w-2 shrink-0 rounded-full ${b.online ? "bg-accent" : "bg-white/25"}`} aria-label={b.online ? "Online" : "Offline"} />
-                    <span className="truncate">{b.name || b.boardId}</span>
+                  <span className="flex min-w-0 items-center gap-2.5">
+                    <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${b.online ? "bg-accent shadow-[0_0_10px_rgba(232,240,71,0.45)]" : "bg-[#85858d]"}`} aria-label={b.online ? "Online" : "Offline"} />
+                    <span className="truncate text-[16px] font-medium text-ink">{b.name || b.boardId}</span>
                   </span>
-                  <span className="shrink-0 font-mono text-[13px] text-muted">{b.boardId} ›</span>
+                  <span className="flex shrink-0 items-center gap-2 font-mono text-[13px] text-[#c4c5cd]">
+                    {b.boardId}
+                    <span className={`rounded-full px-2 py-0.5 font-sans text-[11px] font-semibold ${b.online ? "bg-accent/15 text-accent" : "bg-white/[0.09] text-[#c4c5cd]"}`}>{b.online ? "Online" : "Offline"}</span>
+                    <span aria-hidden>›</span>
+                  </span>
                 </div>
-                <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 pl-4 text-[13px] text-muted">
+                <div className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 pl-[22px] text-[13px] text-[#c2c3cc]">
                   <span>Network</span>
-                  <span className="truncate text-right">{b.ssid ?? "—"}</span>
-                  <span>IP</span>
-                  <span className="text-right font-mono">{b.ip ?? "—"}</span>
+                  <span className="truncate text-right text-ink">{b.ssid ?? "—"}</span>
+                  <span>{b.online ? "IP address" : "Last IP"}</span>
+                  <span className="text-right font-mono text-ink">{b.ip ?? "—"}</span>
                   <span>Relays · Wi-Fi saved</span>
-                  <span className="text-right">
+                  <span className="text-right text-ink">
                     {b.relayPins.length || "—"} · {b.wifi.length || "none"}
                   </span>
+                  <span>Servo</span>
+                  <span className="text-right text-ink">{b.servoPin === null ? "Not configured" : `GPIO ${b.servoPin}`}</span>
                   <span>Last seen</span>
-                  <span className="text-right">{b.linked ? ago(b.lastSeen) : "not set up"}</span>
+                  <span className="text-right text-ink">{b.linked ? ago(b.lastSeen) : "not set up"}</span>
                   {b.restart && (
                     <>
                       <span>Last restart</span>
@@ -337,7 +347,7 @@ export const BoardsSettings: React.FC<{ showToast: Toast }> = ({ showToast }) =>
               onChange={(e) => edit((x) => ({ ...x, relayPins: x.relayPins.map((p, j) => (j === i ? Number(e.target.value) : p)) }))}
               className="bg-transparent text-right text-[15px] text-muted focus:outline-none"
             >
-              {BOARD_SAFE_PINS.filter((p) => p === pin || !d.relayPins.includes(p)).map((p) => (
+              {BOARD_SAFE_PINS.filter((p) => p === pin || (!d.relayPins.includes(p) && p !== d.servoPin)).map((p) => (
                 <option key={p} value={p}>
                   GPIO {p}
                 </option>
@@ -347,6 +357,21 @@ export const BoardsSettings: React.FC<{ showToast: Toast }> = ({ showToast }) =>
         ))}
         <Row label="Relay turns on when pin is" onClick={() => edit((x) => ({ ...x, relayActiveLow: !x.relayActiveLow }))}>
           <span className="text-[15px] text-muted">{d.relayActiveLow ? "LOW (most modules)" : "HIGH"}</span>
+        </Row>
+      </Group>
+
+      <Group title="Servo" footer="Optional. Use the GPIO connected to the servo's signal wire. It must be different from the relay pins.">
+        <Row label="Servo signal pin">
+          <select
+            value={d.servoPin ?? ""}
+            onChange={(e) => edit((x) => ({ ...x, servoPin: e.target.value ? Number(e.target.value) : null }))}
+            className="bg-transparent text-right text-[15px] text-muted focus:outline-none"
+          >
+            <option value="">Disabled</option>
+            {BOARD_SAFE_PINS.filter((p) => p === d.servoPin || !d.relayPins.includes(p)).map((pin) => (
+              <option key={pin} value={pin}>GPIO {pin}</option>
+            ))}
+          </select>
         </Row>
       </Group>
 

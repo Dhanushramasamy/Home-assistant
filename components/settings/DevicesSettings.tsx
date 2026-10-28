@@ -2,11 +2,11 @@
 
 import React from "react";
 import { Device } from "@/types";
-import { Lightbulb, Fan, Plug, Cpu, Plus, Activity, Pencil, Trash2 } from "lucide-react";
+import { Lightbulb, Fan, Plug, Cpu, Plus, Activity, Pencil, Trash2, Rotate3D } from "lucide-react";
 import { deviceAccent } from "@/lib/deviceTheme";
 import { Group, Row } from "./Group";
 
-const icons = { light: Lightbulb, fan: Fan, plug: Plug, other: Cpu };
+const icons = { light: Lightbulb, fan: Fan, plug: Plug, other: Cpu, servo: Rotate3D };
 
 interface DevicesSettingsProps {
   devices: Device[];

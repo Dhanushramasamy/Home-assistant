@@ -13,9 +13,10 @@ Every ESP32 runs the same firmware, the **common template** in [`firmware/templa
 | Number of relays | 1–8 |
 | Relay N pin | Filled with the usual pins (23, 22, 21, 19, …). Change only if wired differently. Only safe pins are offered |
 | Relay turns on when pin is | `LOW` for most relay modules |
+| Servo signal pin | GPIO 18 by default for a new board; choose the signal pin, which must not be used by a relay |
 | Wi-Fi networks | Name and password for each network, as many as needed. **Priority 1 is tried first**; use ↑ ↓ to reorder |
 
-Tap **Add board**. The app saves the board in the `boards` table, encrypts the Wi-Fi passwords, and creates the board's own sign-in.
+Tap **Add board**. The app saves the board in the `boards` table, encrypts the Wi-Fi passwords, and creates the board's own sign-in. On an existing Supabase setup, first run [`add_servo_pin.sql`](../supabase/add_servo_pin.sql) to add the optional servo pin setting.
 
 ### 2. Download the code
 
@@ -41,7 +42,8 @@ Tap **Download code** to get `esp202.zip` with:
 
 1. Settings → Boards shows the board **online** within a minute, with its Wi-Fi, IP and last check-in.
 2. Tap **+** for each relay: name, room, type, **Board** = `esp202`, relay number. The IP can stay empty.
-3. Settings → Users → switch them on for whoever should use them → **Save**.
+3. If a servo pin is enabled, tap **+ → Servo**, give it a name and room, set **Board** = `esp202`, and choose the ON angle and movement speed. Home ON moves to that angle; OFF returns to 0°.
+4. Settings → Users → switch devices on for whoever should use them → **Save**.
 
 ## An existing ESP32
 
@@ -60,6 +62,7 @@ ESP201 moved to the template this way on 2026-10-01. Its old sketch in `firmware
 
 - **Wi-Fi:** scans, then joins the highest-priority network in range. Networks not seen in the scan (hidden ones) are tried last. If Wi-Fi drops for 10 s, it starts again from priority 1. Addresses come from the Wi-Fi (DHCP).
 - **Relays:** each restores its last state after a power cut.
+- **Servo:** when a servo pin is set, the board accepts cloud angle commands from 0° to 180° and reports the confirmed angle.
 - **App control:** cloud control from any network ([13](13-cloud-control.md)).
 - **Local control:** the HTTP API on the same Wi-Fi (`/status`, `/on`, `/off`, `/toggle`, `/timer…`), compatible with the app.
 - **Timers:** up to 10, kept by the board and **saved in flash with their real end time**. After a power cut or restart:
@@ -73,7 +76,7 @@ ESP201 moved to the template this way on 2026-10-01. Its old sketch in `firmware
 
 | What | Where |
 |---|---|
-| Board, label, relays, pins, relay type | `boards` row (`name`, `relay_pins`, `relay_active_low`) |
+| Board, label, relays, pins, relay type, servo pin | `boards` row (`name`, `relay_pins`, `relay_active_low`, `servo_pin`) |
 | Wi-Fi networks | `boards.wifi`: `[{ssid, priority, password}]`, password encrypted |
 | Board sign-in password | `boards.secret`, encrypted; the user is in Supabase Authentication |
 | Encryption key | Derived from `BOARD_SECRET_KEY`, or `SESSION_SECRET` if that isn't set (AES-256-GCM, `lib/secretBox.ts`) |
@@ -89,4 +92,6 @@ If the key changes, saved passwords can't be read: re-enter the Wi-Fi passwords 
 | `app/api/boards/[id]/code` | `GET` the zip (never cached) |
 | `lib/boardSetup.ts` | Checks input, encrypts, creates the sign-in, builds `board_config.h` and the zip |
 | `supabase/board_setup.sql` | Adds the columns (run 2026-10-01) |
+| `supabase/add_servo_pin.sql` | Adds optional servo GPIO support to an existing database |
+| `supabase/add_servo_motion_settings.sql` | Saves each servo device's ON angle and movement speed |
 | `next.config.ts` | Bundles `firmware/template` with the download route on Vercel |

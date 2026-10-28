@@ -52,13 +52,17 @@ create table if not exists public.switches (
   id         text primary key,
   name       text not null,
   room       text not null default 'General',
-  type       text not null default 'light' check (type in ('light', 'fan', 'plug', 'other')),
+  type       text not null default 'light' check (type in ('light', 'fan', 'plug', 'other', 'servo')),
   board_id   text references public.boards (board_id) on update cascade on delete set null,
   relay      integer not null default 1 check (relay between 1 and 16),
+  servo_on_angle smallint not null default 90 check (servo_on_angle between 0 and 180),
+  servo_off_angle smallint not null default 180 check (servo_off_angle between 0 and 180),
+  servo_speed_dps smallint not null default 20 check (servo_speed_dps between 1 and 180),
   ip         text,                                  -- direct control on the same Wi-Fi
-  created_at timestamptz not null default now(),
-  unique (board_id, relay)
+  created_at timestamptz not null default now()
 );
+create unique index if not exists switches_board_relay_unique on public.switches (board_id, relay) where type <> 'servo';
+create unique index if not exists switches_board_servo_unique on public.switches (board_id) where type = 'servo';
 
 -- ------------------------------------------------------------------
 -- access
@@ -89,7 +93,7 @@ on conflict do nothing;
 
 insert into public.switches (id, name, room, type, board_id, relay, ip)
 select d.id, d.name, coalesce(d.room, 'General'),
-       case when d.type in ('light', 'fan', 'plug', 'other') then d.type else 'light' end,
+       case when d.type in ('light', 'fan', 'plug', 'other', 'servo') then d.type else 'light' end,
        b.board_id, coalesce(d.relay, 1), d.ip
 from public."device_PRB_home_assistant" d
 left join public.boards b on b.board_id = d.board_id

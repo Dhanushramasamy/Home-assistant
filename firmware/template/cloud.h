@@ -30,6 +30,8 @@
 //   uint32_t createTimer(relay, actionOn, seconds, repeat, &error)  (0 = failed)
 //   bool cancelTimerById(uint32_t id)
 //   int cancelTimersOnRelay(uint8_t relay)
+//   bool setServoAngle(int angle, int speedDps) (false when unavailable/invalid)
+//   int getServoAngle()
 // and board_config.h: SUPABASE_HOST, SUPABASE_KEY, BOARD_ID, BOARD_EMAIL,
 // BOARD_PASSWORD (the app writes them: Settings -> Boards -> Download code).
 //
@@ -51,6 +53,9 @@ uint32_t cloudTimerSignature();
 uint32_t createTimer(uint8_t relay, bool actionOn, uint32_t seconds, bool repeat, const char** error);
 bool cancelTimerById(uint32_t id);
 int cancelTimersOnRelay(uint8_t relay);
+bool setServoAngle(int angle, int speedDps = 20);
+int getServoTargetAngle();
+int getServoAngle();
 
 // Certificates the board trusts for Supabase (its chain is Google Trust
 // Services today; the others are there in case it changes).
@@ -165,6 +170,7 @@ HMUfpIBvFSDJ3gyICh3WZlXi/EjJKSZp4A==
 const unsigned long CLOUD_CHECKIN_MS = 60000;      // check-in / full report
 const unsigned long CLOUD_HEARTBEAT_MS = 25000;    // Realtime needs one < 60 s
 const unsigned long CLOUD_RETRY_MS = 15000;
+const unsigned long CLOUD_COMMAND_POLL_MS = 2500;  // Realtime is fast; polling recovers a missed update.
 const unsigned long CLOUD_TOKEN_MARGIN_MS = 300000; // refresh 5 min early
 const unsigned long CLOUD_SNAPSHOT_MS = 10000;     // main loop refreshes /status for the task
 const unsigned long CLOUD_COMMAND_MAX_AGE_S = 300; // ignore older commands
@@ -194,6 +200,8 @@ struct CloudCommand {
   uint32_t seconds;
   bool repeat;
   uint32_t id;
+  int16_t angle;
+  int16_t speed;
   bool expired;
 };
 
@@ -302,6 +310,12 @@ void cloudRunCommand(const CloudCommand &c) {
     Serial.printf("[cloud] app: cancel timers on relay %u -> %d\n", c.relay, n);
     cloudAddAck(c.seq, n >= 0, n < 0 ? 0 : n, "invalid");
 
+  } else if (strcmp(c.op, "servo") == 0) {
+
+    bool ok = setServoAngle(c.angle, c.speed);
+    Serial.printf("[cloud] app: servo %d degrees at %d deg/s -> %s\n", c.angle, c.speed, ok ? "ok" : "unavailable/invalid");
+    cloudAddAck(c.seq, ok, getServoTargetAngle(), "invalid");
+
   } else {
 
     cloudAddAck(c.seq, false, 0, "invalid");
@@ -330,6 +344,7 @@ uint32_t cloudJoinRef = 0;
 
 bool cloudFetchDue = false;
 unsigned long cloudNextFetchAt = 0;
+unsigned long cloudLastCommandPoll = 0;
 unsigned long cloudLastReport = 0;
 unsigned long cloudNextReportTry = 0;
 uint32_t cloudSentVersion = 0;
@@ -337,8 +352,8 @@ uint32_t cloudSentVersion = 0;
 bool cloudTimeReady = false;
 unsigned long cloudTimeWaitStart = 0;
 
-// Timer commands: the last one taken (saved in flash, so a restart doesn't
-// run old ones again).
+// Commands: the last sequence accepted from Supabase (saved in flash, so a
+// restart doesn't run old ones again).
 uint32_t cloudLastSeq = 0;
 bool cloudSeqKnown = false;
 
@@ -361,14 +376,28 @@ void cloudQueueCommands(JsonArrayConst commands) {
 
   if (commands.isNull()) return;
 
+  uint32_t newestSeq = 0;
+  for (JsonObjectConst c : commands) {
+    uint32_t seq = c["seq"] | 0UL;
+    if (seq > newestSeq) newestSeq = seq;
+  }
+
+  // A board keeps its cursor in NVS, but the Supabase row may have been
+  // recreated or its command sequence reset during setup. Rebase to the
+  // current queue head so future commands aren't ignored forever.
+  if (cloudSeqKnown && newestSeq < cloudLastSeq) {
+    Serial.printf("[cloud] command sequence reset %lu -> %lu\n",
+      (unsigned long)cloudLastSeq, (unsigned long)newestSeq);
+    cloudLastSeq = newestSeq;
+    cloudPrefs.putUInt("seq", cloudLastSeq);
+  }
+
   // First time (freshly flashed): don't replay what's already there.
   if (!cloudSeqKnown) {
-    for (JsonObjectConst c : commands) {
-      uint32_t seq = c["seq"] | 0UL;
-      if (seq > cloudLastSeq) cloudLastSeq = seq;
-    }
+    cloudLastSeq = newestSeq;
     cloudSeqKnown = true;
     cloudPrefs.putUInt("seq", cloudLastSeq);
+    Serial.printf("[cloud] starting command cursor at %lu\n", (unsigned long)cloudLastSeq);
     return;
   }
 
@@ -389,6 +418,8 @@ void cloudQueueCommands(JsonArrayConst commands) {
     cmd.seconds = c["seconds"] | 0UL;
     cmd.repeat = c["repeat"] | false;
     cmd.id = c["id"] | 0UL;
+    cmd.angle = c["angle"] | -1;
+    cmd.speed = c["speed"] | 20;
 
     // Too old: the app has already told the user it failed.
     long at = c["at"] | 0L;
@@ -403,6 +434,7 @@ void cloudQueueCommands(JsonArrayConst commands) {
 
     cloudLastSeq = seq;
     cloudPrefs.putUInt("seq", seq);
+    Serial.printf("[cloud] queued command %lu (%s)\n", (unsigned long)seq, cmd.op);
   }
 }
 
@@ -533,7 +565,7 @@ void cloudFetchDesired() {
 
   if (code != 200) {
     Serial.printf("[cloud] read failed (%d)\n", code);
-    cloudNextFetchAt = millis() + CLOUD_RETRY_MS;
+    cloudNextFetchAt = millis() + CLOUD_COMMAND_POLL_MS;
     return;
   }
 
@@ -805,6 +837,13 @@ void cloudTaskStep() {
     if (!cloudJoined && now - cloudLastJoin >= CLOUD_RETRY_MS) {
       cloudJoin();
     }
+  }
+
+  // Postgres Changes normally delivers commands immediately. Poll as a
+  // fallback so one missed Realtime event cannot leave a command unhandled.
+  if (now - cloudLastCommandPoll >= CLOUD_COMMAND_POLL_MS) {
+    cloudLastCommandPoll = now;
+    cloudFetchDue = true;
   }
 
   // After (re)joining, catch up on anything the app changed meanwhile.

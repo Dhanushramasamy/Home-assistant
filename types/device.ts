@@ -1,4 +1,8 @@
-export type DeviceType = "light" | "fan" | "plug" | "other";
+export type DeviceType = "light" | "fan" | "plug" | "other" | "servo";
+
+export const DEFAULT_SERVO_ON_ANGLE = 90;
+export const DEFAULT_SERVO_OFF_ANGLE = 180;
+export const DEFAULT_SERVO_SPEED_DPS = 20;
 
 export type DeviceMode = "direct" | "gateway";
 
@@ -55,6 +59,9 @@ export interface DeviceStatusResponse {
   deviceId: string;
   reachable: boolean;
   power?: PowerState;
+  servoAngle?: number;
+  servoTargetAngle?: number;
+  servoMoving?: boolean;
   timers?: DeviceTimerEntry[];
   timerMode?: TimerMode;
   timerCount?: number;
@@ -98,6 +105,18 @@ export interface Device {
   boardId?: string | null;
   icon?: string;
   powerState: PowerState;
+  /** Last servo position reported by its cloud board (0–180 degrees). */
+  servoAngle?: number;
+  /** Target position used by the Home switch when this servo turns on. */
+  servoOnAngle?: number;
+  /** Target position used by the Home switch when this servo turns off. */
+  servoOffAngle?: number;
+  /** Stored software movement speed in degrees per second. */
+  servoSpeedDps?: number;
+  /** Last target angle reported by the board. */
+  servoTargetAngle?: number;
+  /** True while firmware is still moving toward the target angle. */
+  servoMoving?: boolean;
   connectionState: ConnectionState;
   lastSeen?: string;
   /** Timers the user configured (see DeviceTimerConfig). */
@@ -128,6 +147,7 @@ export interface DeviceControlResponse {
   targetUrl: string;
   message: string;
   timestamp: string;
+  targetAngle?: number;
   simulated?: boolean;
 }
 
@@ -165,6 +185,7 @@ export interface BoardSetupInput {
   name: string;
   relayPins: number[];
   relayActiveLow: boolean;
+  servoPin: number | null;
   /** In priority order. `password` left out = keep the saved one (of `originalSsid`, or the same name). */
   wifi: { ssid: string; password?: string; originalSsid?: string }[];
 }
@@ -175,6 +196,7 @@ export interface CloudBoard {
   name: string | null;
   relayPins: number[];
   relayActiveLow: boolean;
+  servoPin: number | null;
   wifi: BoardWifi[];
   /** Checked in within BOARD_ONLINE_MS. */
   online: boolean;

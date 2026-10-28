@@ -5,6 +5,7 @@ A private smart-home app for switching bedroom lights and fans through ESP32 rel
 - **App:** Next.js 16 + React 19, Supabase, deployed on Vercel (`prp-home-assistant.vercel.app`)
 - **Devices:** ESP200 (home bedroom: Light + Fan) and ESP201 (Erode bedroom), firmware in [`firmware/`](firmware/)
 - **Cloud control:** ESP201 is switched through Supabase, so it works from any network ([docs](docs/13-cloud-control.md))
+- **Hardware handoff:** Pi 5 access, ESP32 setup and flashing, servo and relay wiring/use ([PI5-ESP32-HARDWARE-HANDOFF.md](PI5-ESP32-HARDWARE-HANDOFF.md))
 
 ## Documentation
 

@@ -13,6 +13,9 @@ import {
   TimerAction,
   PowerState,
   ConnectionState,
+  DEFAULT_SERVO_OFF_ANGLE,
+  DEFAULT_SERVO_ON_ANGLE,
+  DEFAULT_SERVO_SPEED_DPS,
 } from "@/types";
 
 // On Vercel the server is in a data centre, so it can never reach a home
@@ -47,7 +50,9 @@ export async function executeDeviceControl(
     ? device.powerState === "on" ? "off" : "on"
     : action;
 
-  if (device.boardId) return controlViaBoard(device, nextPowerState === "on" ? "on" : "off");
+  if (device.boardId) return device.type === "servo"
+    ? controlBoardServo(device, nextPowerState === "on" ? "on" : "off")
+    : controlViaBoard(device, nextPowerState === "on" ? "on" : "off");
 
   // Determine active communication mode
   const effectiveMode =
@@ -197,6 +202,54 @@ export async function executeDeviceControl(
       };
     }
   }
+}
+
+async function controlBoardServo(device: Device, power: "on" | "off"): Promise<DeviceControlResponse> {
+  const boardId = device.boardId as string;
+  const onAngle = device.servoOnAngle ?? DEFAULT_SERVO_ON_ANGLE;
+  const angle = power === "on" ? onAngle : device.servoOffAngle ?? DEFAULT_SERVO_OFF_ANGLE;
+  const speed = device.servoSpeedDps ?? DEFAULT_SERVO_SPEED_DPS;
+  const timestamp = new Date().toISOString();
+  const targetUrl = `cloud:${boardId}/servo/${angle}?speed=${speed}`;
+  try {
+    const state = await getBoardState(boardId);
+    if (!state) throw new Error(`Board "${boardId}" doesn't exist. Check the device's Board setting.`);
+    if (!state.online) throw new Error(`Board "${boardId}" is offline.`);
+    const servo = state.report?.servo as { ready?: unknown } | undefined;
+    if (servo?.ready !== true) throw new Error("Servo firmware isn't ready. Download and upload this board's latest code.");
+    const reportedAngle = (state.report?.servo as { angle?: unknown } | undefined)?.angle;
+    const startAngle = typeof reportedAngle === "number" ? reportedAngle : angle;
+    const seq = await pushBoardCommand(boardId, { op: "servo", angle, speed });
+    if (seq === null) throw new Error(`Board "${boardId}" doesn't exist.`);
+    const { ack } = await waitForBoardAck(boardId, seq, 9_000);
+    if (!ack) throw new Error("The ESP32 hasn't confirmed the servo command yet.");
+    if (!ack.ok) throw new Error("The ESP32 couldn't move the servo. Check the firmware and servo power.");
+    await waitForServoMotion(boardId, angle, speed, startAngle);
+    await updateDevice(device.id, { powerState: power, connectionState: "connected" });
+    return {
+      success: true, deviceId: device.id, powerState: power, connectionState: "connected",
+      modeUsed: "cloud", targetUrl, message: `${device.name} reached ${angle}° at ${speed}°/sec.`, timestamp, targetAngle: angle,
+    };
+  } catch (error) {
+    return {
+      success: false, deviceId: device.id, powerState: device.powerState, connectionState: device.connectionState,
+      modeUsed: "cloud", targetUrl, message: (error as Error).message, timestamp,
+    };
+  }
+}
+
+/** Keep the app's switch busy until firmware reports the requested position reached. */
+async function waitForServoMotion(boardId: string, angle: number, speed: number, startAngle: number): Promise<void> {
+  const travelMs = Math.ceil(Math.abs(angle - startAngle) * 1000 / speed);
+  const deadline = Date.now() + travelMs + 12_000;
+  while (Date.now() <= deadline) {
+    const state = await getBoardState(boardId);
+    if (!state?.online) throw new Error(`Board "${boardId}" went offline while the servo was moving.`);
+    const servo = state.report?.servo as { angle?: unknown; targetAngle?: unknown; moving?: unknown } | undefined;
+    if (servo?.angle === angle && servo?.targetAngle === angle && servo?.moving !== true) return;
+    await new Promise((resolve) => setTimeout(resolve, 1_050));
+  }
+  throw new Error(`The ESP32 accepted ${angle}°, but did not report reaching it before the movement timeout.`);
 }
 
 /**
@@ -575,12 +628,25 @@ async function boardStatus(device: Device, fetchedAt: string): Promise<DeviceSta
   const raw = state.report;
   const relay = device.relay || 1;
   const timers = (parseTimers(raw) ?? []).filter((t) => t.relay === relay);
+  const servo = device.type === "servo" && raw.servo && typeof raw.servo === "object"
+    ? raw.servo as { angle?: unknown; targetAngle?: unknown; moving?: unknown }
+    : undefined;
+  const servoAngle = typeof servo?.angle === "number" ? servo.angle : undefined;
+  const servoTargetAngle = typeof servo?.targetAngle === "number" ? servo.targetAngle : servoAngle;
+  const servoOnAngle = device.servoOnAngle ?? DEFAULT_SERVO_ON_ANGLE;
+  const servoOffAngle = device.servoOffAngle ?? DEFAULT_SERVO_OFF_ANGLE;
+  const servoPower = servoTargetAngle === servoOnAngle
+    ? "on"
+    : servoTargetAngle === servoOffAngle ? "off" : "unknown";
   await reconcileTimerRecords(device.id, timers);
   return {
     success: true,
     deviceId: device.id,
     reachable: true,
-    power: powerForRelay(raw, relay),
+    power: device.type === "servo" ? servoPower : powerForRelay(raw, relay),
+    ...(servoAngle !== undefined ? { servoAngle } : {}),
+    ...(servoTargetAngle !== undefined ? { servoTargetAngle } : {}),
+    ...(typeof servo?.moving === "boolean" ? { servoMoving: servo.moving } : {}),
     timers,
     timerMode: timerModeOf(raw),
     timerCount: timers.length,

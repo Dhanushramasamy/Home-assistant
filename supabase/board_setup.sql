@@ -8,6 +8,7 @@
 alter table public.boards
   add column if not exists relay_pins jsonb not null default '[23]'::jsonb,       -- ESP32 pin per relay, relay 1 first
   add column if not exists relay_active_low boolean not null default true,         -- most relay modules switch on LOW
+  add column if not exists servo_pin integer,                                      -- optional servo PWM output pin
   add column if not exists wifi jsonb not null default '[]'::jsonb,                -- [{ssid, priority, password: encrypted}]
   add column if not exists secret text;                                             -- encrypted board sign-in password
 

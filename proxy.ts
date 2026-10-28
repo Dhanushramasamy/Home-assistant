@@ -16,6 +16,7 @@ function needsAdmin(pathname: string, method: string): boolean {
   if (pathname === "/api/devices/reset" || pathname === "/api/devices/clear") return true;
   if (pathname === "/api/network" && method !== "GET") return true;
   if (pathname === "/api/devices" && method === "POST") return true; // add device
+  if (pathname.startsWith("/api/device-records/") && ["PUT", "PATCH", "DELETE"].includes(method)) return true;
   if (/^\/api\/devices\/[^/]+$/.test(pathname) && ["PUT", "PATCH", "DELETE"].includes(method)) {
     return !["/api/devices/control", "/api/devices/test", "/api/devices/status", "/api/devices/timer"].includes(pathname);
   }

@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { Loader2, Power } from "lucide-react";
 import { springs } from "@/lib/deviceTheme";
 import { playSwitchClick } from "@/lib/sound";
+import { PowerState } from "@/types";
 
 interface PowerPillProps {
   on: boolean;
@@ -18,6 +19,8 @@ interface PowerPillProps {
   unavailable?: boolean;
   /** Waiting for the device to confirm (or the first check): spinner, taps ignored. */
   loading?: boolean;
+  /** Target state while an On/Off action is in progress. */
+  pendingState?: Exclude<PowerState, "unknown">;
 }
 
 /**
@@ -33,29 +36,44 @@ export const PowerPill: React.FC<PowerPillProps> = ({
   sound = true,
   unavailable = false,
   loading = false,
+  pendingState,
 }) => {
-  const on = onProp && !unavailable;
+  const actionPending = pendingState === "on" || pendingState === "off";
+  const on = (actionPending ? pendingState === "on" : onProp) && !unavailable;
   const knob = size === "lg" ? "h-12 w-12" : "h-10 w-10";
   const icon = size === "lg" ? "h-5 w-5" : "h-[18px] w-[18px]";
+
+  if (loading) {
+    return (
+      <span
+        role="status"
+        aria-label={`${label ?? "Device"} status loading`}
+        aria-live="polite"
+        className={`glass-btn flex shrink-0 items-center justify-center rounded-full ${size === "lg" ? "h-14 w-14" : "h-12 w-12"}`}
+        title="Checking device status…"
+      >
+        <Loader2 className={`${icon} animate-spin text-muted`} strokeWidth={2.4} />
+      </span>
+    );
+  }
 
   return (
     <button
       type="button"
       role="switch"
-      aria-checked={unavailable ? "mixed" : on}
-      aria-label={unavailable ? `${label ?? "Power"} unavailable` : label}
-      aria-busy={loading}
-      title={unavailable ? "Device unreachable, state unknown" : loading ? "Waiting for the device…" : undefined}
-      disabled={disabled || unavailable}
+      aria-checked={unavailable || actionPending ? "mixed" : on}
+      aria-label={unavailable ? `${label ?? "Power"} unavailable` : actionPending ? `${label ?? "Power"} turning ${pendingState}` : label}
+      aria-busy={actionPending}
+      title={unavailable ? "Device unreachable, state unknown" : actionPending ? `Turning ${pendingState}…` : undefined}
+      disabled={disabled || unavailable || actionPending}
       onClick={(e) => {
         e.stopPropagation();
-        if (loading) return;
         if (sound) playSwitchClick(!on);
         onToggle();
       }}
       onPointerDown={(e) => e.stopPropagation()}
       className={`glass-btn flex shrink-0 items-center gap-1 rounded-full p-1 disabled:opacity-40 ${
-        on ? "flex-row" : "flex-row-reverse"
+        unavailable || on ? "flex-row" : "flex-row-reverse"
       }`}
     >
       <motion.span layout transition={springs.snappy} className={`relative flex items-center justify-center overflow-hidden ${size === "lg" ? "w-11" : "w-9"}`}>
@@ -68,7 +86,7 @@ export const PowerPill: React.FC<PowerPillProps> = ({
             transition={{ duration: 0.2 }}
             className={`text-[15px] ${on ? "text-ink" : "text-muted"}`}
           >
-            {unavailable ? "—" : on ? "On" : "Off"}
+        {unavailable ? "—" : on ? "On" : "Off"}
           </motion.span>
         </AnimatePresence>
       </motion.span>
@@ -81,7 +99,7 @@ export const PowerPill: React.FC<PowerPillProps> = ({
           boxShadow: on ? "0 0 18px 2px rgb(232 240 71 / 0.45)" : "0 2px 8px rgb(0 0 0 / 0.35)",
         }}
       >
-        {loading ? (
+        {actionPending ? (
           <Loader2 className={`${icon} animate-spin text-[#151515]`} strokeWidth={2.4} />
         ) : (
           <motion.span

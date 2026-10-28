@@ -1,4 +1,4 @@
-import { Device, DeviceTimerConfig } from "@/types";
+import { DEFAULT_SERVO_OFF_ANGLE, DEFAULT_SERVO_ON_ANGLE, DEFAULT_SERVO_SPEED_DPS, Device, DeviceTimerConfig } from "@/types";
 import { supabase } from "./supabaseClient";
 import { allBoardStates, BoardState } from "./boardStore";
 import { powerForRelay } from "./timerParse";
@@ -44,6 +44,9 @@ interface SwitchRow {
   board_id: string | null;
   relay: number;
   ip: string | null;
+  servo_on_angle?: number | null;
+  servo_off_angle?: number | null;
+  servo_speed_dps?: number | null;
 }
 
 type LiveState = Pick<Device, "powerState" | "connectionState" | "lastSeen">;
@@ -74,13 +77,32 @@ function toDevice(row: SwitchRow, boards: Map<string, BoardState>): Device {
   let powerState: Device["powerState"] = live?.powerState ?? "off";
   let connectionState: Device["connectionState"] = live?.connectionState ?? "connected";
   let lastSeen = live?.lastSeen;
+  let servoAngle: number | undefined;
+  let servoTargetAngle: number | undefined;
+  let servoMoving: boolean | undefined;
+  let servoPowerState: Device["powerState"] = "unknown";
 
   const boardReport = row.board_id ? boards.get(row.board_id)?.report : undefined;
   if (row.board_id) {
     const board = boards.get(row.board_id);
     connectionState = board?.online ? "connected" : "offline";
     // When offline the last report is still the last known state.
-    powerState = (board?.report ? powerForRelay(board.report, relay) : undefined) ?? powerState;
+    if (row.type === "servo") {
+      const servoReport = board?.report?.servo as { angle?: unknown; targetAngle?: unknown; moving?: unknown } | undefined;
+      const angle = servoReport?.angle;
+      servoAngle = typeof angle === "number" ? angle : undefined;
+      const target = typeof servoReport?.targetAngle === "number" ? servoReport.targetAngle : angle;
+      servoTargetAngle = typeof target === "number" ? target : undefined;
+      servoMoving = typeof servoReport?.moving === "boolean" ? servoReport.moving : undefined;
+      const onAngle = row.servo_on_angle ?? DEFAULT_SERVO_ON_ANGLE;
+      const offAngle = row.servo_off_angle ?? DEFAULT_SERVO_OFF_ANGLE;
+      servoPowerState = target === onAngle
+        ? "on"
+        : target === offAngle ? "off" : "unknown";
+      powerState = servoPowerState;
+    } else {
+      powerState = (board?.report ? powerForRelay(board.report, relay) : undefined) ?? powerState;
+    }
     lastSeen = board?.lastSeen ?? lastSeen;
   }
 
@@ -95,13 +117,19 @@ function toDevice(row: SwitchRow, boards: Map<string, BoardState>): Device {
     relay,
     boardId: row.board_id,
     powerState,
+    ...(servoAngle !== undefined ? { servoAngle } : {}),
+    servoOnAngle: row.servo_on_angle ?? DEFAULT_SERVO_ON_ANGLE,
+    servoOffAngle: row.servo_off_angle ?? DEFAULT_SERVO_OFF_ANGLE,
+    servoSpeedDps: row.servo_speed_dps ?? DEFAULT_SERVO_SPEED_DPS,
+    ...(servoTargetAngle !== undefined ? { servoTargetAngle } : {}),
+    ...(servoMoving !== undefined ? { servoMoving } : {}),
     connectionState,
     lastSeen: lastSeen ?? undefined,
     timers: timerRecords.get(row.id) ?? [],
   };
 }
 
-function toRow(d: Pick<Device, "id" | "name" | "room" | "type" | "relay" | "ip"> & { boardId?: string | null }) {
+function toRow(d: Pick<Device, "id" | "name" | "room" | "type" | "relay" | "ip"> & Pick<Partial<Device>, "servoOnAngle" | "servoOffAngle" | "servoSpeedDps"> & { boardId?: string | null }) {
   return {
     id: d.id,
     name: d.name,
@@ -110,6 +138,9 @@ function toRow(d: Pick<Device, "id" | "name" | "room" | "type" | "relay" | "ip">
     board_id: d.boardId || null,
     relay: d.relay || 1,
     ip: d.ip || null,
+    servo_on_angle: d.servoOnAngle ?? DEFAULT_SERVO_ON_ANGLE,
+    servo_off_angle: d.servoOffAngle ?? DEFAULT_SERVO_OFF_ANGLE,
+    servo_speed_dps: d.servoSpeedDps ?? DEFAULT_SERVO_SPEED_DPS,
   };
 }
 
@@ -160,7 +191,11 @@ export async function addDevice(
 
   const { error } = await supabase.from(SWITCH_TABLE).insert(toRow({ ...newDeviceData, id: uniqueId }));
   invalidateDevices();
-  if (error) throw new Error(error.code === "23505" ? "That board already has a switch on this relay." : error.message);
+  if (error) throw new Error(error.code === "23505"
+    ? newDeviceData.type === "servo" ? "That board already has a servo device." : "That board already has a switch on this relay."
+    : newDeviceData.type === "servo" && (error.code === "42703" || error.code === "PGRST204")
+      ? "Run supabase/add_servo_motion_settings.sql in the Supabase SQL Editor, then add the servo again."
+      : error.message);
 
   liveState.set(uniqueId, {
     powerState: newDeviceData.powerState || "off",
@@ -169,7 +204,7 @@ export async function addDevice(
   return (await getDeviceById(uniqueId)) as Device;
 }
 
-const STORED_FIELDS = ["name", "room", "type", "relay", "ip", "boardId"] as const;
+const STORED_FIELDS = ["name", "room", "type", "relay", "ip", "boardId", "servoOnAngle", "servoOffAngle", "servoSpeedDps"] as const;
 
 /**
  * Updates a switch. Name, room, type, relay, IP and board are saved in the
@@ -184,7 +219,11 @@ export async function updateDevice(id: string, updates: Partial<Device>): Promis
   if (STORED_FIELDS.some((f) => f in updates && updates[f] !== current[f])) {
     const { error } = await supabase.from(SWITCH_TABLE).update(toRow(merged)).eq("id", id);
     invalidateDevices();
-    if (error) throw new Error(error.code === "23505" ? "That board already has a switch on this relay." : error.message);
+    if (error) throw new Error(error.code === "23505"
+      ? merged.type === "servo" ? "That board already has a servo device." : "That board already has a switch on this relay."
+      : merged.type === "servo" && (error.code === "42703" || error.code === "PGRST204")
+        ? "Run supabase/add_servo_motion_settings.sql in the Supabase SQL Editor, then save the servo again."
+        : error.message);
   }
 
   if ("powerState" in updates || "connectionState" in updates) {

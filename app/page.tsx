@@ -177,13 +177,13 @@ export default function HomeControlPage() {
   // state). Each switch is handled on its own: it shows a loader, ignores
   // more taps, and background reads leave it alone until it's confirmed.
   const busyRef = useRef<Record<string, PowerState>>({});
-  const [busy, setBusy] = useState<Record<string, boolean>>({});
+  const [busy, setBusy] = useState<Record<string, PowerState>>({});
   const setSwitchBusy = useCallback((id: string, target: PowerState | null) => {
     if (target) busyRef.current[id] = target;
     else delete busyRef.current[id];
     setBusy((prev) => {
       const next = { ...prev };
-      if (target) next[id] = true;
+      if (target) next[id] = target;
       else delete next[id];
       return next;
     });
@@ -287,6 +287,17 @@ export default function HomeControlPage() {
       return;
     }
 
+    if (targetDevice.type === "servo") {
+      setSwitchBusy(deviceId, null);
+      updateDevicesState((prev) => prev.map((d) => d.id === deviceId ? {
+        ...d,
+        powerState: nextState,
+        servoTargetAngle: result?.targetAngle ?? (nextState === "on" ? (d.servoOnAngle ?? 90) : (d.servoOffAngle ?? 180)),
+      } : d));
+      setTimeout(() => void refreshStatus(deviceId), 900);
+      return;
+    }
+
     // Keep the loader until the board itself reports the new state.
     await confirmSwitch(deviceId, nextState, currentPower, targetDevice.name);
   };
@@ -341,6 +352,13 @@ export default function HomeControlPage() {
                 ...(status.reachable
                   ? { powerState: holding ? d.powerState : status.power ?? d.powerState, connectionState: "connected" as const }
                   : { connectionState: "offline" as const }),
+                ...(status.reachable && d.type === "servo"
+                  ? {
+                      ...(status.servoAngle !== undefined ? { servoAngle: status.servoAngle } : {}),
+                      ...(status.servoTargetAngle !== undefined ? { servoTargetAngle: status.servoTargetAngle } : {}),
+                      ...(status.servoMoving !== undefined ? { servoMoving: status.servoMoving } : {}),
+                    }
+                  : {}),
                 ...(status.savedTimers ? { timers: status.savedTimers } : {}),
               }
             : d
@@ -468,7 +486,11 @@ export default function HomeControlPage() {
     ip: string;
     relay: number;
     boardId?: string | null;
+    servoOnAngle?: number;
+    servoOffAngle?: number;
+    servoSpeedDps?: number;
   }) => {
+    let servoErrorShown = false;
     try {
       const res = await fetch("/api/devices", {
         method: "POST",
@@ -481,6 +503,12 @@ export default function HomeControlPage() {
         updateDevicesState((prev) => [...prev, newDev]);
         showToast("success", "Device Added");
       } else {
+        if (deviceData.type === "servo") {
+          const error = await res.json().catch(() => ({}));
+          showToast("error", "Servo device wasn't added", error.error ?? "Check the board and try again.");
+          servoErrorShown = true;
+          throw new Error(error.error ?? "Failed to add servo device.");
+        }
         const fallbackDev: Device = {
           id: `dev-${Date.now()}`,
           name: deviceData.name,
@@ -495,7 +523,11 @@ export default function HomeControlPage() {
         updateDevicesState((prev) => [...prev, fallbackDev]);
         showToast("success", "Device Added");
       }
-    } catch {
+    } catch (error) {
+      if (deviceData.type === "servo") {
+        if (!servoErrorShown) showToast("error", "Servo device wasn't added", "Couldn't reach the app server. Try again.");
+        throw error;
+      }
       const fallbackDev: Device = {
         id: `dev-${Date.now()}`,
         name: deviceData.name,
@@ -514,25 +546,64 @@ export default function HomeControlPage() {
 
   // Edit Device
   const handleSaveEditDevice = async (id: string, updates: Partial<Device>) => {
+    const current = devicesRef.current.find((device) => device.id === id);
+    const servoSettingsChanged = (updates.type ?? current?.type) === "servo" && (
+      current?.type !== "servo"
+      || (updates.servoOnAngle ?? current?.servoOnAngle ?? 90) !== (current?.servoOnAngle ?? 90)
+      || (updates.servoOffAngle ?? current?.servoOffAngle ?? 180) !== (current?.servoOffAngle ?? 180)
+      || (updates.servoSpeedDps ?? current?.servoSpeedDps ?? 20) !== (current?.servoSpeedDps ?? 20)
+    );
+    if (servoSettingsChanged) setSwitchBusy(id, "off");
+
+    let result: (Partial<Device> & { servoMove?: DeviceControlResponse; details?: string; error?: string }) | null = null;
     try {
-      await fetch(`/api/devices/${id}`, {
+      const res = await fetch(`/api/device-records/${encodeURIComponent(id)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
       });
-    } catch {}
-    updateDevicesState((prev) => prev.map((d) => (d.id === id ? { ...d, ...updates } : d)));
-    showToast("success", "Saved");
+      result = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(result?.details ?? result?.error ?? "The server couldn't save this device.");
+    } catch (error) {
+      if (servoSettingsChanged) setSwitchBusy(id, null);
+      showToast("error", "Couldn't save device", (error as Error).message);
+      return;
+    }
+    if (servoSettingsChanged) setSwitchBusy(id, null);
+    const servoMove = result?.servoMove;
+    updateDevicesState((prev) => prev.map((d) => (d.id === id ? {
+      ...d,
+      ...updates,
+      ...(servoSettingsChanged ? {
+        powerState: servoMove?.success ? "off" : "unknown",
+        ...(servoMove?.success ? { servoTargetAngle: servoMove.targetAngle ?? updates.servoOffAngle ?? d.servoOffAngle ?? 180, servoMoving: false } : {}),
+      } : {}),
+    } : d)));
+    if (servoSettingsChanged && servoMove) {
+      if (servoMove.success) {
+        showToast("success", "Servo moved to its OFF angle", servoMove.message);
+      } else {
+        showToast("warning", "Settings saved; servo didn't move", servoMove.message);
+      }
+      setTimeout(() => void refreshStatus(id), 500);
+    } else {
+      showToast("success", "Saved");
+    }
   };
 
   // Delete Device
   const handleDeleteDevice = async (device: Device) => {
     if (!window.confirm(`Delete '${device.name}'?`)) return;
     try {
-      await fetch(`/api/devices/${device.id}`, { method: "DELETE" });
-    } catch {}
+      const res = await fetch(`/api/device-records/${encodeURIComponent(device.id)}`, { method: "DELETE" });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(result.details ?? result.error ?? "The server couldn't delete this device.");
+    } catch (error) {
+      showToast("error", `Couldn't delete ${device.name}`, (error as Error).message);
+      return;
+    }
     updateDevicesState((prev) => prev.filter((d) => d.id !== device.id));
-    showToast("info", "Device Removed");
+    showToast("success", "Device Removed", `${device.name} was deleted.`);
   };
 
   // Clear Mock Data
@@ -835,6 +906,7 @@ export default function HomeControlPage() {
                       onEditDevice={isAdmin ? (device) => setEditingDevice(device) : undefined}
                       onDeleteDevice={isAdmin ? handleDeleteDevice : undefined}
                       isActionLoading={!!busy[device.id]}
+                      pendingPower={busy[device.id] === "on" ? "on" : busy[device.id] === "off" ? "off" : undefined}
                       espStatus={espStatus[device.id]}
                       onRefreshStatus={refreshStatus}
                       onStartTimer={handleStartTimer}

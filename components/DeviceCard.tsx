@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Device, DeviceTimerEntry, PowerState, TimerAction } from "@/types";
-import { Lightbulb, Fan, Plug, Cpu, ArrowUpRight, Timer, Repeat } from "lucide-react";
+import { Lightbulb, Fan, Plug, Cpu, ArrowUpRight, Timer, Repeat, Rotate3D, Pencil, Trash2 } from "lucide-react";
 import { formatCountdown, remainingNow } from "@/lib/timerClient";
 import { useNow } from "@/lib/useNow";
 import { Device3DModal } from "./Device3DModal";
@@ -35,6 +35,8 @@ interface DeviceCardProps {
   onDeleteDevice?: (device: Device) => void;
   /** Tapped and waiting for the device to confirm. */
   isActionLoading?: boolean;
+  /** Requested switch state during the current action. */
+  pendingPower?: Exclude<PowerState, "unknown">;
   /** Position in the grid, used to stagger the entrance. */
   index?: number;
   espStatus?: EspStatusEntry;
@@ -44,7 +46,7 @@ interface DeviceCardProps {
   onClearTimers?: (deviceId: string) => Promise<void>;
 }
 
-export const deviceIcons = { light: Lightbulb, fan: Fan, plug: Plug, other: Cpu };
+export const deviceIcons = { light: Lightbulb, fan: Fan, plug: Plug, other: Cpu, servo: Rotate3D };
 
 export const DeviceCard: React.FC<DeviceCardProps> = ({
   device,
@@ -53,6 +55,7 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
   onEditDevice,
   onDeleteDevice,
   isActionLoading = false,
+  pendingPower,
   index = 0,
   espStatus,
   onRefreshStatus,
@@ -62,13 +65,14 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
 }) => {
   const [isDetailOpen, setIsDetailOpen] = useState(false);
 
-  const isOn = device.powerState === "on";
   const isConnected = espStatus ? espStatus.reachable : device.connectionState === "connected";
   const savedCount = device.timers?.length ?? 0;
   const Icon = deviceIcons[device.type] ?? Cpu;
   // No status yet = still checking the device for the first time.
-  const loading = isActionLoading || !espStatus;
-  const toggle = () => !loading && onTogglePower(device.id, device.powerState);
+  const unavailable = !!espStatus && !espStatus.reachable && !isActionLoading;
+  const loading = !pendingPower && !unavailable && (!espStatus || (device.powerState === "unknown" && espStatus.reachable) || (device.type === "servo" && device.servoMoving === true));
+  const isOn = !loading && !unavailable && (pendingPower ? pendingPower === "on" : device.powerState === "on");
+  const toggle = () => !loading && !pendingPower && onTogglePower(device.id, device.powerState);
   const timers = espStatus?.timers ?? [];
   const now = useNow(timers.length > 0);
   // Show the timer that fires next; "+N" for the rest.
@@ -119,7 +123,20 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
               </motion.span>
             </motion.div>
 
-            <motion.button
+            {device.type === "servo" ? (
+              <div className="flex gap-2">
+                {onEditDevice && (
+                  <button type="button" onClick={() => onEditDevice(device)} className="glass-btn flex h-12 w-12 items-center justify-center rounded-full text-ink" aria-label={`Edit ${device.name}`} title="Edit device">
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                )}
+                {onDeleteDevice && (
+                  <button type="button" onClick={() => onDeleteDevice(device)} className="glass-btn flex h-12 w-12 items-center justify-center rounded-full text-danger" aria-label={`Delete ${device.name}`} title="Delete device">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            ) : <motion.button
               onClick={() => setIsDetailOpen(true)}
               whileHover={{ rotate: 45 }}
               whileTap={{ scale: 0.9 }}
@@ -128,7 +145,7 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
               aria-label={`Open ${device.name}`}
             >
               <ArrowUpRight className="h-5 w-5" strokeWidth={1.8} />
-            </motion.button>
+            </motion.button>}
           </div>
 
           <div className="relative min-w-0 px-1">
@@ -165,15 +182,24 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
             </AnimatePresence>
           </div>
 
-          <div className="relative mt-auto flex justify-end">
+          {device.type === "servo" ? (
+            <div className="relative mt-auto flex items-end justify-between px-1 pb-1">
+              <div className="space-y-1">
+                <p className="text-[12px] text-muted">ON at {device.servoOnAngle ?? 90}°</p>
+                <p className="text-[12px] text-muted">OFF at {device.servoOffAngle ?? 180}°</p>
+              </div>
+              <PowerPill on={isOn} onToggle={toggle} loading={loading} pendingState={pendingPower} unavailable={unavailable} label={`${device.name} power`} />
+            </div>
+          ) : <div className="relative mt-auto flex justify-end">
             <PowerPill
               on={isOn}
               onToggle={toggle}
               loading={loading}
-              unavailable={!!espStatus && !espStatus.reachable && !isActionLoading}
+              pendingState={pendingPower}
+              unavailable={unavailable}
               label={`${device.name} power`}
             />
-          </div>
+          </div>}
         </motion.div>
       </motion.div>
 
@@ -182,11 +208,13 @@ export const DeviceCard: React.FC<DeviceCardProps> = ({
         isOpen={isDetailOpen}
         onClose={() => setIsDetailOpen(false)}
         onTogglePower={onTogglePower}
-        isActionLoading={loading}
+        isActionLoading={loading || isActionLoading}
         onTestConnection={onTestConnection}
         onEditDevice={onEditDevice}
         onDeleteDevice={onDeleteDevice}
         espStatus={espStatus}
+        statusLoading={loading}
+        pendingPower={pendingPower}
         onRefreshStatus={onRefreshStatus}
         onStartTimer={onStartTimer}
         onCancelTimer={onCancelTimer}

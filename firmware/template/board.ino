@@ -32,6 +32,60 @@
 #define CLOUD_RELAYS RELAY_COUNT
 #include "cloud.h"
 
+#ifndef SERVO_PIN
+#define SERVO_PIN -1
+#endif
+
+bool servoReady = false;
+int servoAngle = 90;
+int servoTargetAngle = 90;
+int servoSpeedDps = 20;
+int servoMoveStartAngle = 90;
+unsigned long servoMoveStartedAt = 0;
+unsigned long servoLastReportAt = 0;
+
+bool setServoAngle(int angle, int speedDps) {
+  if (!servoReady || angle < 0 || angle > 180) return false;
+  if (speedDps < 1 || speedDps > 180) return false;
+  servoTargetAngle = angle;
+  servoSpeedDps = speedDps;
+  servoMoveStartAngle = servoAngle;
+  servoMoveStartedAt = millis();
+  return true;
+}
+
+void writeServoAngle() {
+  const uint32_t pulseUs = 1000 + ((uint32_t)servoAngle * 1000) / 180;
+  const uint32_t duty = (pulseUs * 65535UL) / 20000UL;
+  ledcWrite(SERVO_PIN, duty);
+}
+
+void updateServo() {
+  if (!servoReady || servoAngle == servoTargetAngle) return;
+  const unsigned long now = millis();
+  const int distance = abs(servoTargetAngle - servoMoveStartAngle);
+  const unsigned long elapsed = now - servoMoveStartedAt;
+  const int moved = min(distance, (int)(((uint64_t)elapsed * (uint64_t)servoSpeedDps) / 1000ULL));
+  const int direction = servoTargetAngle >= servoMoveStartAngle ? 1 : -1;
+  const int nextAngle = servoMoveStartAngle + direction * moved;
+  if (nextAngle != servoAngle) {
+    servoAngle = nextAngle;
+    writeServoAngle();
+  }
+  if (now - servoLastReportAt >= 1000 || servoAngle == servoTargetAngle) {
+    cloudReportDue = true;
+    servoLastReportAt = now;
+  }
+}
+
+int getServoAngle() {
+  return servoAngle;
+}
+
+int getServoTargetAngle() {
+  return servoTargetAngle;
+}
+
 
 // ============================================================
 // RELAYS
@@ -401,6 +455,13 @@ String getStatusJSON() {
   json += ",\"ssid\":" + jsonText(WiFi.SSID());
   json += ",\"rssi\":" + String(WiFi.RSSI());
   json += ",\"cloud\":" + jsonText(cloudState);
+  json += ",\"servo\":{\"enabled\":" + String(SERVO_PIN >= 0 ? "true" : "false") + ",\"ready\":" + String(servoReady ? "true" : "false");
+  if (SERVO_PIN >= 0) {
+    json += ",\"pin\":" + String(SERVO_PIN) + ",\"angle\":" + String(servoAngle);
+    json += ",\"targetAngle\":" + String(servoTargetAngle) + ",\"speedDps\":" + String(servoSpeedDps);
+    json += ",\"moving\":" + String(servoAngle != servoTargetAngle ? "true" : "false");
+  }
+  json += "}";
   json += ",\"reset\":" + jsonText(resetReason);
   json += ",\"boots\":" + String(bootCount);
   if (timersRestored) {
@@ -640,13 +701,19 @@ void setup() {
   bootCount = timerPrefs.getUInt("boots", 0) + 1;
   timerPrefs.putUInt("boots", bootCount);
 
-  Serial.printf("\n%s (%s): %d relay(s), %d Wi-Fi network(s)\n", BOARD_NAME, BOARD_ID, RELAY_COUNT, WIFI_COUNT);
+  Serial.printf("\n%s (%s): %d relay(s), servo GPIO %d, %d Wi-Fi network(s)\n", BOARD_NAME, BOARD_ID, RELAY_COUNT, SERVO_PIN, WIFI_COUNT);
   Serial.printf("Start #%lu, last restart: %s\n", (unsigned long)bootCount, resetReason);
 
   for (uint8_t r = 1; r <= RELAY_COUNT; r++) {
     pinMode(RELAY_PINS[r - 1], OUTPUT);
     relayState[r] = false;
     writeRelayPin(r, false);
+  }
+
+  if (SERVO_PIN >= 0) {
+    servoReady = ledcAttach(SERVO_PIN, 50, 16);
+    if (servoReady) setServoAngle(90);
+    else Serial.printf("Could not attach servo PWM to GPIO %d\n", SERVO_PIN);
   }
 
   for (int i = 0; i < MAX_TIMERS; i++) {
@@ -676,6 +743,7 @@ void loop() {
   }
 
   processTimers();
+  updateServo();
   cloudLoop();
 
   // Lost Wi-Fi for 10 s: start again from the highest priority.

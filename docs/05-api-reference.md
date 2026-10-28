@@ -51,6 +51,13 @@ All routes live under `app/api/`. **`proxy.ts` guards every one of them:**
 
 Timer responses: `{success, deviceId, reachable, created?, timers?, reason?, targetUrl, message}`, where `reason` is `offline | invalid | not_found | limit | unsupported | error`, and `message` is already human-readable ("Maximum of 10 timers are already active on this device.").
 
+## Servo
+
+| Method & path | Who | Notes |
+|---|---|---|
+| `GET /api/servo` | signed in with access to a relay on the board | Servo-capable boards and their reported angle / online state |
+| `POST /api/servo` | same access | `{boardId, angle:0–180}` queues a Supabase command and waits for the ESP32 to confirm |
+
 ## Network and gateway
 
 | Method & path | Who | Notes |

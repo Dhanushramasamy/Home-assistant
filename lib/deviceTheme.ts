@@ -6,6 +6,7 @@ export const deviceAccent: Record<DeviceType, { hex: string; rgb: string; light:
   fan: { hex: "#7dd3fc", rgb: "125 211 252", light: "#bae6fd", label: "Fan" },
   plug: { hex: "#86efac", rgb: "134 239 172", light: "#bbf7d0", label: "Plug" },
   other: { hex: "#f0abfc", rgb: "240 171 252", light: "#f5d0fe", label: "Other" },
+  servo: { hex: "#fbbf24", rgb: "251 191 36", light: "#fde68a", label: "Servo" },
 };
 
 export const ACCENT = { hex: "#e8f047", rgb: "232 240 71" };

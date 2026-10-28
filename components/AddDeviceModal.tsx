@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { DeviceType, DeviceMode, NetworkConfig } from "@/types";
+import { CloudBoard, DEFAULT_SERVO_OFF_ANGLE, DEFAULT_SERVO_ON_ANGLE, DEFAULT_SERVO_SPEED_DPS, DeviceType, DeviceMode, NetworkConfig } from "@/types";
 import { octetsToIPv4, validateIpAgainstSubnet } from "@/lib/networkUtils";
 import { ModalShell } from "@/components/ui/ModalShell";
 import { SheetHeader, FormGroup, FormRow, TypePicker, IpInput, BoardField, cleanBoardId, rowInput, rowSelect } from "./DeviceFormParts";
@@ -17,6 +17,9 @@ interface AddDeviceModalProps {
     ip: string;
     relay: number;
     boardId?: string | null;
+    servoOnAngle?: number;
+    servoOffAngle?: number;
+    servoSpeedDps?: number;
   }) => Promise<void>;
   networkConfig: NetworkConfig | null;
   existingRooms: string[];
@@ -41,6 +44,11 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
   ]);
   const [relay, setRelay] = useState(1);
   const [boardId, setBoardId] = useState("");
+  const [servoOnAngle, setServoOnAngle] = useState(DEFAULT_SERVO_ON_ANGLE);
+  const [servoOffAngle, setServoOffAngle] = useState(DEFAULT_SERVO_OFF_ANGLE);
+  const [servoSpeedDps, setServoSpeedDps] = useState(DEFAULT_SERVO_SPEED_DPS);
+  const [boards, setBoards] = useState<CloudBoard[]>([]);
+  const [boardsLoading, setBoardsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -49,8 +57,30 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
       setType("light");
       setOctets(["192", "168", "1", "200"]);
       setRelay(1);
+      setBoardId("");
+      setServoOnAngle(DEFAULT_SERVO_ON_ANGLE);
+      setServoOffAngle(DEFAULT_SERVO_OFF_ANGLE);
+      setServoSpeedDps(DEFAULT_SERVO_SPEED_DPS);
     }
   }, [isOpen, networkConfig]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let active = true;
+    setBoardsLoading(true);
+    fetch("/api/boards", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error("Could not load boards."))))
+      .then((data: { boards?: CloudBoard[] }) => {
+        if (active) setBoards(data.boards ?? []);
+      })
+      .catch(() => {
+        if (active) setBoards([]);
+      })
+      .finally(() => {
+        if (active) setBoardsLoading(false);
+      });
+    return () => { active = false; };
+  }, [isOpen]);
 
   const currentIp = octetsToIPv4(octets);
   const subnet = networkConfig?.subnet || "192.168.1.0/24";
@@ -65,7 +95,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!name.trim() || (type === "servo" && !cleanBoardId(boardId))) return;
 
     const finalRoom = room === "Custom" ? customRoom.trim() || "General" : room;
     setIsSubmitting(true);
@@ -79,6 +109,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
         ip: cleanBoardId(boardId) ? "" : currentIp,
         relay,
         boardId: cleanBoardId(boardId),
+        ...(type === "servo" ? { servoOnAngle, servoOffAngle, servoSpeedDps } : {}),
       });
       onClose();
     } catch (err) {
@@ -94,7 +125,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
         <SheetHeader
           title="Add Device"
           confirmLabel={isSubmitting ? "Saving…" : "Add"}
-          canConfirm={!isSubmitting && !!name.trim()}
+          canConfirm={!isSubmitting && !!name.trim() && (type !== "servo" || !!cleanBoardId(boardId))}
           onCancel={onClose}
         />
 
@@ -132,7 +163,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                 />
               </FormRow>
             )}
-              <FormRow label="Relay">
+              {type !== "servo" && <FormRow label="Relay">
                 <select value={relay} onChange={(e) => setRelay(Number(e.target.value))} className={rowSelect}>
                   {[1, 2, 3, 4].map((n) => (
                     <option key={n} value={n}>
@@ -140,17 +171,28 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                     </option>
                   ))}
                 </select>
-              </FormRow>
+              </FormRow>}
           </FormGroup>
 
           <FormGroup caption="Type">
-            <TypePicker value={type} onChange={setType} />
+            <TypePicker value={type} onChange={(nextType) => {
+              setType(nextType);
+              if (nextType === "servo" && !boards.some((board) => board.boardId === boardId && board.servoPin !== null)) setBoardId("");
+            }} />
           </FormGroup>
 
-          <BoardField value={boardId} onChange={setBoardId} />
+          <BoardField value={boardId} onChange={setBoardId} boards={boards} loading={boardsLoading} servoOnly={type === "servo"} />
+          {type === "servo" && <>
+            <FormGroup caption="Servo switch">
+              <FormRow label="ON angle (°)"><input type="number" step={1} required placeholder="90" value={servoOnAngle} onChange={(e) => setServoOnAngle(Number(e.target.value))} className={rowInput} /></FormRow>
+              <FormRow label="OFF angle (°)"><input type="number" step={1} required placeholder="180" value={servoOffAngle} onChange={(e) => setServoOffAngle(Number(e.target.value))} className={rowInput} /></FormRow>
+              <FormRow label="Movement speed (°/sec)"><input type="number" step={1} required placeholder="20" value={servoSpeedDps} onChange={(e) => setServoSpeedDps(Number(e.target.value))} className={rowInput} /></FormRow>
+            </FormGroup>
+            <p className="-mt-4 px-4 text-[11px] text-muted">Use different ON/OFF angles. Board accepts 0–180° angles and speed 1–180°/sec. Choose the servo-enabled board from Settings → Boards.</p>
+          </>}
 
           {/* A cloud board gets its address from the Wi-Fi; the IP is only for boards without one. */}
-          {!cleanBoardId(boardId) && (
+          {type !== "servo" && !cleanBoardId(boardId) && (
             <FormGroup
               caption="Direct (same Wi-Fi)"
               footer={validation.status === "warning" ? (

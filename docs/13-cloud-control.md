@@ -52,7 +52,7 @@ The SQL also:
 
 ### Timers through the cloud
 
-1. **App:** `board_push_command` adds e.g. `{"seq":7,"at":…,"op":"timer","relay":1,"action":"off","seconds":1800,"repeat":false}` to `commands`. Other ops are `cancel` (`id`) and `cancel_relay` (`relay`).
+1. **App:** `board_push_command` adds e.g. `{"seq":7,"at":…,"op":"timer","relay":1,"action":"off","seconds":1800,"repeat":false}` to `commands`. Other ops are `cancel` (`id`), `cancel_relay` (`relay`) and `servo` (`angle`, 0–180 degrees, with optional `speed` in degrees per second; default 20).
 2. **Board:** it hears the change instantly and runs every command newer than the last one it ran. That number is saved in flash, so a restart never repeats a command, and commands older than 5 minutes are ignored.
 3. **Board:** it reports the result in `reported.acks`, e.g. `{"seq":7,"ok":true,"id":3}`, or `{"ok":false,"error":"limit"}`.
 4. **App:** it waits up to 10 s for the ack (normally 4–6 s), then shows the timer. It refuses to queue timers for an offline board.

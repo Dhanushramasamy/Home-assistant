@@ -11,6 +11,9 @@ const char* BOARD_NAME = "Hall";
 const uint8_t RELAY_PINS[RELAY_COUNT] = {23, 22};
 #define RELAY_ACTIVE_LOW true
 
+// Optional servo PWM pin; -1 disables servo support.
+#define SERVO_PIN -1
+
 // Wi-Fi networks, highest priority first.
 struct WifiNetwork {
   const char* ssid;

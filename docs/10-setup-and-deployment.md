@@ -34,7 +34,9 @@ Without `SESSION_SECRET`, login returns "Sign-in isn't configured on the server"
 1. Set `SUPABASE_SERVICE_ROLE_KEY` locally **and** on Vercel, and redeploy.
 2. `supabase/four_tables.sql`: the four tables (users, boards, switches, access), functions, security, Realtime.
 3. `supabase/board_setup.sql`: the board setup columns (relays, pins, Wi-Fi, encrypted sign-in).
-4. Boards are then added in the app: Settings → Boards ([16](16-admin-guide.md)). `scripts/board-login.mjs` is the older terminal way.
+4. For servo-enabled boards on an existing install, run `supabase/add_servo_pin.sql`.
+5. For servo devices on an existing install, run `supabase/add_servo_device_type.sql` and `supabase/add_servo_motion_settings.sql`.
+6. Boards are then added in the app: Settings → Boards ([16](16-admin-guide.md)). `scripts/board-login.mjs` is the older terminal way.
 
 On a brand-new project, add the first admin by hand in the SQL editor (password hash from `lib/auth/password.ts`), or create the user from an existing install.
 

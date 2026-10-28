@@ -9,6 +9,8 @@ Arduino sketches for the ESP32 relay controllers used by this app. History and d
 | `template/` | Every board (common template) | 1–8, pins from the app |
 | `cardputer/` | M5Stack Cardputer **remote** (not a relay board) | — : switches and timers from the keyboard; see `cardputer/README.md` |
 | `recorder/` | M5Stack Cardputer **voice recorder** (not part of Home Control) | — : records WAV to the SD card (`/recordings`), plays, deletes. **Cardputer ADV: build with esp32 core 3.2.0** (3.3.x / IDF 5.5 gives a silent mic), M5Unified 0.2.23 |
+| `ir-remote/` | M5Stack Cardputer **IR remote** (offline, not part of Home Control) | — : AC encoder (Panasonic/LG/Toshiba) + raw Flipper `.ir` sender on G44. ADV has IR **TX only** (no receiver, can't learn remotes) |
+| `bt-hid/` | M5Stack Cardputer **Bluetooth keyboard + air-mouse** (offline) | — : pairs as a BLE HID keyboard+mouse ("Cardputer KB/Mouse"); keys type, IMU-tilt or `; . , /` move the pointer. Uses patched **ESP32-BLE-Combo** (its pre-3.x `setValue(std::string)` / `BLEDevice::init(std::string)` calls need the new String / `(uint8_t*,len)` API for core 3.x); fits the default partition (~1.15 MB). `KEY_*` macro clash with M5's `Keyboard_def.h` resolved by `#undef` between the includes |
 | `esp200/` | ESP200, home bedroom | Relay 1 = GPIO 23 (Light), Relay 2 = GPIO 22 (Fan) |
 | `esp201/` | ESP201, Erode bedroom | Relay 1 = GPIO 23 · cloud control (`cloud.h`, see `../docs/13-cloud-control.md`) |
 

@@ -14,6 +14,7 @@ import {
   Fan,
   Plug,
   Cpu,
+  Rotate3D,
   Wifi,
   WifiOff,
   CircuitBoard,
@@ -40,6 +41,10 @@ interface Device3DModalProps {
   onTogglePower: (deviceId: string, currentPower: PowerState) => void;
   /** Tapped and waiting for the device (or still checking it). */
   isActionLoading?: boolean;
+  /** The device's initial or movement status is not yet known. */
+  statusLoading?: boolean;
+  /** Requested On/Off target while an action is pending. */
+  pendingPower?: Exclude<PowerState, "unknown">;
   onTestConnection?: (deviceId: string) => void;
   onEditDevice?: (device: Device) => void;
   onDeleteDevice?: (device: Device) => void;
@@ -50,7 +55,7 @@ interface Device3DModalProps {
   onClearTimers?: (deviceId: string) => Promise<void>;
 }
 
-const icons = { light: Lightbulb, fan: Fan, plug: Plug, other: Cpu };
+const icons = { light: Lightbulb, fan: Fan, plug: Plug, other: Cpu, servo: Rotate3D };
 
 // Quick picks for the "After" duration. Any custom hours/minutes also work.
 const quickDurations = [
@@ -69,6 +74,8 @@ export const Device3DModal: React.FC<Device3DModalProps> = ({
   onClose,
   onTogglePower,
   isActionLoading = false,
+  statusLoading = false,
+  pendingPower,
   onTestConnection,
   onEditDevice,
   onDeleteDevice,
@@ -133,7 +140,6 @@ export const Device3DModal: React.FC<Device3DModalProps> = ({
 
   const isOn = device?.powerState === "on";
   const Icon = icons[device?.type ?? "other"] ?? Cpu;
-  const has3D = device?.type === "light" || device?.type === "fan";
   const isConnected = espStatus ? espStatus.reachable : device?.connectionState === "connected";
 
   const startTimer = async () => {
@@ -229,7 +235,8 @@ export const Device3DModal: React.FC<Device3DModalProps> = ({
             <PowerPill
               on={isOn}
               onToggle={() => onTogglePower(device.id, device.powerState)}
-              loading={isActionLoading}
+              loading={statusLoading}
+              pendingState={pendingPower}
               unavailable={offline && !isActionLoading}
               size="lg"
               label="Power"
@@ -245,7 +252,7 @@ export const Device3DModal: React.FC<Device3DModalProps> = ({
               animate={{ opacity: isOn ? 0.2 : 0 }}
               transition={{ duration: 0.6 }}
             />
-            {has3D ? (
+            {device.type === "light" || device.type === "fan" ? (
               <Dynamic3DCanvas type={device.type} isOn={isOn} value={100} />
             ) : (
               <div className="flex h-60 items-center justify-center">

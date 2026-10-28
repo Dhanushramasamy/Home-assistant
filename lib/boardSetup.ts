@@ -30,6 +30,7 @@ interface SetupRow {
   auth_user_id: string | null;
   relay_pins: number[] | null;
   relay_active_low: boolean | null;
+  servo_pin: number | null;
   wifi: StoredWifi[] | null;
   secret: string | null;
 }
@@ -39,11 +40,11 @@ export class BoardSetupProblem extends Error {}
 async function readRow(boardId: string): Promise<SetupRow | null> {
   const { data, error } = await supabase
     .from(BOARD_TABLE)
-    .select("board_id, name, auth_user_id, relay_pins, relay_active_low, wifi, secret")
+    .select("board_id, name, auth_user_id, relay_pins, relay_active_low, servo_pin, wifi, secret")
     .eq("board_id", boardId)
     .maybeSingle();
   if (error) {
-    if (/relay_pins|wifi|secret/.test(error.message)) {
+    if (/relay_pins|servo_pin|wifi|secret/.test(error.message)) {
       throw new BoardSetupProblem("Board setup isn't in the database yet. Run supabase/board_setup.sql in Supabase.");
     }
     throw new Error(error.message);
@@ -60,6 +61,10 @@ export function checkSetup(boardId: string, input: BoardSetupInput): string | nu
   if (pins.length < 1 || pins.length > MAX_BOARD_RELAYS) return `A board has 1–${MAX_BOARD_RELAYS} relays.`;
   if (pins.some((p) => !(BOARD_SAFE_PINS as readonly number[]).includes(p))) return "Pick each relay's pin from the list.";
   if (new Set(pins).size !== pins.length) return "Each relay needs its own pin.";
+  if (input.servoPin !== null && input.servoPin !== undefined) {
+    if (!(BOARD_SAFE_PINS as readonly number[]).includes(input.servoPin)) return "Pick the servo pin from the list.";
+    if (pins.includes(input.servoPin)) return "The servo needs a different GPIO pin from every relay.";
+  }
 
   const wifi = input.wifi ?? [];
   if (wifi.length < 1 || wifi.length > MAX_BOARD_WIFI) return `Add 1–${MAX_BOARD_WIFI} Wi-Fi networks.`;
@@ -96,6 +101,7 @@ export async function saveBoardSetup(boardId: string, input: BoardSetupInput): P
     name: input.name.trim(),
     relay_pins: input.relayPins,
     relay_active_low: input.relayActiveLow !== false,
+    servo_pin: input.servoPin ?? null,
     wifi,
   };
 
@@ -197,6 +203,9 @@ const char* BOARD_NAME = ${cText(row.name || row.board_id)};
 const uint8_t RELAY_PINS[RELAY_COUNT] = {${pins.join(", ")}};
 #define RELAY_ACTIVE_LOW ${row.relay_active_low === false ? "false" : "true"}
 
+// Optional hobby servo PWM output; -1 disables servo support.
+#define SERVO_PIN ${row.servo_pin ?? -1}
+
 // Wi-Fi networks, highest priority first.
 struct WifiNetwork {
   const char* ssid;
@@ -227,6 +236,8 @@ function readme(boardId: string): string {
 4. Click Upload. When it says "Done uploading" the board restarts and connects.
 5. In the app: Settings > Boards shows "${boardId}" online within a minute.
    Then add a switch for each relay (+ button, Board = ${boardId}).
+   If a servo pin is enabled, use + > Add Device > Servo and choose ${boardId}.
+   Its angle slider appears on Home.
 
 board_config.h has your Wi-Fi passwords. Don't share this folder.
 `;
