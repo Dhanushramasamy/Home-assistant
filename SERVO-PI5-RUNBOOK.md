@@ -109,6 +109,26 @@ This gives a wider physical travel than the earlier 1000–2000 µs range. It wa
 
 The original ESP202 board repeatedly exposed a CH340 but did not answer the ESP32 bootloader (`No serial data received`). A replacement board answered successfully and was used for the GPIO13 sweep test. Because USB port names and board labels can be confused, always use `esptool chip-id` and a single connected board before flashing.
 
+### Dead "202" board diagnosis (29 Oct 2026)
+
+A board labelled 202 was diagnosed on the Pi 5 with the same `No serial data received` failure. It may be the original ESP202; its MAC address could not be read. The Pi side was clean: one CH340 on `/dev/ttyUSB0`, no process holding the port, `throttled=0x0`, 5.11 V supply, and `usb_max_current_enable=1`.
+
+The ESP32 ROM banner stopped after `ets Jul 29 2019`, about 1.3 ms after every reset, and the RX line then read a `0x00` byte every ~440 ms. The cut-off point was the same for reset holds of 0.02 s, 0.5 s, and 3 s. With EN held low, the line was silent.
+
+Multimeter readings:
+
+| Condition | 5V/VIN | 3V3 |
+|---|---|---|
+| Powered, EN tied to GND (chip held in reset) | 4.16 V | 3.22 V |
+| Powered, EN free (chip running) | 2.39 V | 1.48 V |
+| Unpowered, EN wire removed (resistance to GND) | open (>2 MΩ) | 1.93 kΩ |
+
+No part became warm. The regulator, CH340, and board wiring are healthy, and there is no short while the board is off. The ESP32 module overloads the supply only once it starts, so it is damaged. Replacing the module needs hot air and costs about as much as a new board, so it was not repaired.
+
+The board is now a 3.3 V USB-serial adapter. With EN tied to GND, a TX-to-RX loopback test passed at 9600, 115200, 460800, and 921600 baud. Keep the EN-to-GND wire permanently fitted, wire its TX to the target's RX and its RX to the target's TX, and enter download mode on the target by hand; this board's auto-reset only drives its own ESP32. Label it "USB-Serial only" so it is not confused with a working board.
+
+Quick test for this fault on any board: run `esptool chip-id`. If it fails, reset the board through RTS and read the raw serial output at 115200 baud. A banner that stops partway, then periodic `0x00` bytes, means the supply collapses when the chip runs. Confirm by measuring 3V3 with EN tied to GND and then with EN free.
+
 ## Source, generated files, and secrets
 
 - Shared app and firmware source lives in `app/`, `components/`, `lib/`, `types/`, and `firmware/template/`.
