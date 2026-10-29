@@ -637,7 +637,9 @@ async function boardStatus(device: Device, fetchedAt: string): Promise<DeviceSta
   const servoOffAngle = device.servoOffAngle ?? DEFAULT_SERVO_OFF_ANGLE;
   const servoPower = servoTargetAngle === servoOnAngle
     ? "on"
-    : servoTargetAngle === servoOffAngle ? "off" : "unknown";
+    : servoTargetAngle === servoOffAngle
+      ? "off"
+      : servo?.moving === true ? "unknown" : "off";
   await reconcileTimerRecords(device.id, timers);
   return {
     success: true,

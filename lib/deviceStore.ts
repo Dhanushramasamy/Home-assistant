@@ -96,9 +96,12 @@ function toDevice(row: SwitchRow, boards: Map<string, BoardState>): Device {
       servoMoving = typeof servoReport?.moving === "boolean" ? servoReport.moving : undefined;
       const onAngle = row.servo_on_angle ?? DEFAULT_SERVO_ON_ANGLE;
       const offAngle = row.servo_off_angle ?? DEFAULT_SERVO_OFF_ANGLE;
+      // An idle servo can report an intermediate angle (for example after a
+      // restart or a manual movement). Keep the toggle usable in that case;
+      // the card reserves its loader for an active movement or command.
       servoPowerState = target === onAngle
         ? "on"
-        : target === offAngle ? "off" : "unknown";
+        : target === offAngle ? "off" : servoMoving === true ? "unknown" : "off";
       powerState = servoPowerState;
     } else {
       powerState = (board?.report ? powerForRelay(board.report, relay) : undefined) ?? powerState;

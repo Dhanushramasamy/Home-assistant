@@ -55,7 +55,13 @@ bool setServoAngle(int angle, int speedDps) {
 }
 
 void writeServoAngle() {
-  const uint32_t pulseUs = 1000 + ((uint32_t)servoAngle * 1000) / 180;
+  // Calibrated travel range for the hobby servo. Keep the linkage
+  // disconnected while testing these endpoints and reduce the range if the
+  // servo buzzes or stalls at either end.
+  constexpr uint32_t SERVO_MIN_US = 500;
+  constexpr uint32_t SERVO_MAX_US = 2400;
+  const uint32_t pulseUs = SERVO_MIN_US +
+    ((uint32_t)servoAngle * (SERVO_MAX_US - SERVO_MIN_US)) / 180;
   const uint32_t duty = (pulseUs * 65535UL) / 20000UL;
   ledcWrite(SERVO_PIN, duty);
 }

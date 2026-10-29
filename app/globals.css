@@ -9,12 +9,12 @@
   --color-surface: #202126;
   --color-surface-2: #26272c;
   --color-surface-3: #313238;
-  --color-line: rgb(255 255 255 / 0.08);
-  --color-line-strong: rgb(255 255 255 / 0.14);
+  --color-line: rgb(255 255 255 / 0.12);
+  --color-line-strong: rgb(255 255 255 / 0.2);
 
   --color-ink: #f4f4f5;
-  --color-muted: #a1a1aa;
-  --color-dim: #71717a;
+  --color-muted: #c2c3cc;
+  --color-dim: #9899a3;
 
   --color-accent: #e8f047;
   --color-accent-hover: #dbe33a;
@@ -53,11 +53,11 @@ body {
 
 .card,
 .glass {
-  background: rgb(28 29 34 / 0.55);
-  border: 1px solid rgb(255 255 255 / 0.09);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06), 0 20px 40px -24px rgb(0 0 0 / 0.6);
-  backdrop-filter: blur(24px) saturate(140%);
-  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  background: rgb(25 26 31 / 0.88);
+  border: 1px solid rgb(255 255 255 / 0.13);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.07), 0 20px 40px -24px rgb(0 0 0 / 0.72);
+  backdrop-filter: blur(28px) saturate(125%);
+  -webkit-backdrop-filter: blur(28px) saturate(125%);
 }
 
 /* Round glass icon button, as in the reference */

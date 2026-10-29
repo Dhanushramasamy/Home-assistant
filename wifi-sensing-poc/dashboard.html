@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wi-Fi Sensing POC</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; background: #101318; color: #eef2f7; }
+    main { width: min(1100px, calc(100% - 32px)); margin: 32px auto; }
+    h1 { margin-bottom: 6px; font-size: clamp(28px, 5vw, 48px); }
+    p { color: #9da9b8; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin: 24px 0; }
+    .card { background: #191e26; border: 1px solid #2a3340; border-radius: 16px; padding: 18px; }
+    .label { color: #9da9b8; font-size: 13px; text-transform: uppercase; letter-spacing: .08em; }
+    .value { margin-top: 8px; font-size: 26px; font-weight: 700; }
+    #chart { width: 100%; height: 340px; background: #151a21; border-radius: 16px; border: 1px solid #2a3340; }
+    #field { width: 100%; height: 380px; display: block; background: radial-gradient(circle at center, #1b2934 0%, #131920 48%, #101318 100%); border-radius: 16px; border: 1px solid #2a3340; }
+    .status { display: inline-flex; align-items: center; gap: 8px; }
+    .dot { width: 10px; height: 10px; background: #ffb454; border-radius: 50%; }
+    .dot.good { background: #57d69a; }
+    .note { font-size: 14px; line-height: 1.5; }
+    code { color: #b9e6ff; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Wi-Fi Sensing POC</h1>
+    <p>Pi 5 local signal view. This reads Wi-Fi RSSI; ESP32 CSI sensors can be added later.</p>
+    <section class="grid">
+      <div class="card"><div class="label">Connection</div><div class="value status"><span id="dot" class="dot"></span><span id="state">Waiting</span></div></div>
+      <div class="card"><div class="label">Signal</div><div id="signal" class="value">—</div></div>
+      <div class="card"><div class="label">Network</div><div id="ssid" class="value">—</div></div>
+      <div class="card"><div class="label">Motion score</div><div id="motion" class="value">—</div></div>
+      <div class="card"><div class="label">CSI packets</div><div id="csiPackets" class="value">0</div></div>
+      <div class="card"><div class="label">Interference</div><div id="interference" class="value">0/100</div></div>
+    </section>
+    <canvas id="field" width="1100" height="380"></canvas>
+    <p class="note">Orange pulses show CSI disturbance. Spatial intercepts need two or more ESP32 sensors.</p>
+    <canvas id="chart" width="1100" height="340"></canvas>
+    <p class="note">The blue line is smoothed signal. The shaded area is the recent signal boundary. The motion score is only a signal-variation indicator.</p>
+    <p class="note">Pi address: <code id="ip">—</code> · Frequency: <code id="frequency">—</code></p>
+  </main>
+  <script>
+    const points = [];
+    const canvas = document.querySelector('#chart');
+    const ctx = canvas.getContext('2d');
+    const field = document.querySelector('#field');
+    const fieldCtx = field.getContext('2d');
+    let lastSignal = null;
+    let smoothSignal = null;
+    let motion = 0;
+    let fieldStrength = 0.7;
+    let interference = 0;
+
+    function drawField(now = 0) {
+      const w = field.width, h = field.height;
+      const cx = w / 2, cy = h / 2;
+      fieldCtx.clearRect(0, 0, w, h);
+      fieldCtx.save();
+      fieldCtx.globalCompositeOperation = 'lighter';
+      const pulse = now / 1000;
+      const base = 28 + ((pulse * (24 + fieldStrength * 20)) % 72);
+      for (let i = 0; i < 5; i++) {
+        const radius = base + i * 62;
+        const alpha = Math.max(0, (.14 + fieldStrength * .12) - i * .028);
+        fieldCtx.beginPath(); fieldCtx.arc(cx, cy, radius, 0, Math.PI * 2);
+        fieldCtx.strokeStyle = `rgba(80, 194, 255, ${alpha})`;
+        fieldCtx.lineWidth = 2; fieldCtx.stroke();
+      }
+      fieldCtx.restore();
+      if (interference > 1) {
+        const glow = 30 + interference * 1.2 + Math.sin(pulse * 5) * 8;
+        fieldCtx.save(); fieldCtx.globalCompositeOperation = 'lighter';
+        fieldCtx.beginPath(); fieldCtx.arc(cx, cy, glow, 0, Math.PI * 2);
+        fieldCtx.strokeStyle = `rgba(255, 154, 82, ${Math.min(.8, interference / 120)})`;
+        fieldCtx.lineWidth = 5; fieldCtx.stroke(); fieldCtx.restore();
+      }
+      fieldCtx.save();
+      fieldCtx.translate(cx, cy);
+      fieldCtx.shadowColor = '#71c7ff'; fieldCtx.shadowBlur = 22;
+      fieldCtx.fillStyle = '#263c4b'; fieldCtx.strokeStyle = '#9bddff'; fieldCtx.lineWidth = 2;
+      fieldCtx.beginPath(); fieldCtx.roundRect(-52, -31, 104, 62, 15); fieldCtx.fill(); fieldCtx.stroke();
+      fieldCtx.shadowBlur = 0;
+      fieldCtx.fillStyle = '#71c7ff'; fieldCtx.beginPath(); fieldCtx.arc(-25, 0, 5, 0, Math.PI * 2); fieldCtx.fill();
+      fieldCtx.fillStyle = '#ffe070'; fieldCtx.beginPath(); fieldCtx.arc(0, 0, 5, 0, Math.PI * 2); fieldCtx.fill();
+      fieldCtx.fillStyle = '#71c7ff'; fieldCtx.beginPath(); fieldCtx.arc(25, 0, 5, 0, Math.PI * 2); fieldCtx.fill();
+      fieldCtx.strokeStyle = '#9bddff'; fieldCtx.lineWidth = 2; fieldCtx.beginPath(); fieldCtx.moveTo(0, -31); fieldCtx.lineTo(0, -52); fieldCtx.stroke();
+      fieldCtx.beginPath(); fieldCtx.arc(0, -52, 7, Math.PI, 0); fieldCtx.stroke();
+      fieldCtx.restore();
+      fieldCtx.fillStyle = 'rgba(238, 242, 247, .8)'; fieldCtx.font = '13px system-ui'; fieldCtx.textAlign = 'center'; fieldCtx.fillText('PI 5 ROUTER', cx, cy + 58);
+      fieldCtx.fillStyle = 'rgba(157, 169, 184, .9)'; fieldCtx.font = '12px system-ui'; fieldCtx.fillText('relative signal strength · no direction data', cx, 24);
+      fieldCtx.fillStyle = interference > 20 ? '#ff9a52' : 'rgba(157, 169, 184, .75)'; fieldCtx.fillText(interference > 20 ? 'CSI DISTURBANCE DETECTED' : 'waiting for CSI disturbance', cx, h - 18);
+      requestAnimationFrame(drawField);
+    }
+    requestAnimationFrame(drawField);
+
+    function draw() {
+      const w = canvas.width, h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+      ctx.strokeStyle = '#2a3340';
+      ctx.lineWidth = 1;
+      for (let i = 1; i < 5; i++) { const y = i * h / 5; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+      if (points.length < 2) return;
+      const min = Math.min(...points) - 3, max = Math.max(...points) + 3;
+      const yFor = value => h - ((value - min) / (max - min || 1)) * (h - 34) - 17;
+      const smooth = points.map((_, i) => {
+        const window = points.slice(Math.max(0, i - 5), i + 1);
+        return window.reduce((sum, value) => sum + value, 0) / window.length;
+      });
+      const spread = points.map((_, i) => {
+        const window = points.slice(Math.max(0, i - 10), i + 1);
+        const average = window.reduce((sum, value) => sum + value, 0) / window.length;
+        const variance = window.reduce((sum, value) => sum + (value - average) ** 2, 0) / window.length;
+        return Math.max(0.7, Math.sqrt(variance) * 2.2);
+      });
+      ctx.beginPath();
+      smooth.forEach((value, i) => {
+        const x = i * w / (points.length - 1);
+        if (i === 0) ctx.moveTo(x, yFor(value + spread[i])); else ctx.lineTo(x, yFor(value + spread[i]));
+      });
+      for (let i = smooth.length - 1; i >= 0; i--) {
+        const x = i * w / (points.length - 1);
+        ctx.lineTo(x, yFor(smooth[i] - spread[i]));
+      }
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(113, 199, 255, .16)';
+      ctx.fill();
+      ctx.shadowColor = '#71c7ff'; ctx.shadowBlur = 12;
+      ctx.strokeStyle = '#71c7ff'; ctx.lineWidth = 3; ctx.beginPath();
+      smooth.forEach((value, i) => {
+        const x = i * w / (points.length - 1), y = yFor(value);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke(); ctx.shadowBlur = 0;
+    }
+
+    async function refresh() {
+      try {
+        const data = await fetch('/api/status', { cache: 'no-store' }).then(r => r.json());
+        document.querySelector('#state').textContent = data.state;
+        document.querySelector('#dot').className = 'dot ' + (data.state === 'connected' ? 'good' : '');
+        document.querySelector('#ssid').textContent = data.ssid;
+        document.querySelector('#signal').textContent = data.signalDbm === null ? '—' : `${data.signalDbm.toFixed(1)} dBm`;
+        document.querySelector('#ip').textContent = data.ip;
+        document.querySelector('#frequency').textContent = data.frequencyMHz ? `${data.frequencyMHz} MHz` : '—';
+        if (data.csi) {
+          document.querySelector('#csiPackets').textContent = data.csi.packets;
+          if (data.csi.packets > 0) fieldStrength = Math.max(.25, Math.min(1, data.csi.amplitude / 90));
+          interference = Math.min(100, Math.round(data.csi.variance / 20));
+          document.querySelector('#interference').textContent = `${interference}/100`;
+        }
+        if (data.signalDbm !== null) {
+          if (smoothSignal === null) smoothSignal = data.signalDbm;
+          smoothSignal = smoothSignal * 0.78 + data.signalDbm * 0.22;
+          if (lastSignal !== null) motion = Math.round(motion * 0.72 + Math.min(100, Math.abs(data.signalDbm - lastSignal) * 25) * 0.28);
+          lastSignal = data.signalDbm;
+          points.push(smoothSignal); if (points.length > 120) points.shift();
+          if (!data.csi || data.csi.packets === 0) fieldStrength = Math.max(.25, Math.min(1, (data.signalDbm + 90) / 60));
+          document.querySelector('#motion').textContent = `${motion}/100`;
+          draw();
+        }
+      } catch (error) { document.querySelector('#state').textContent = 'Server unavailable'; }
+    }
+    refresh(); setInterval(refresh, 1000);
+  </script>
+</body>
+</html>

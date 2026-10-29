@@ -10,7 +10,7 @@ export const Group: React.FC<{ title?: string; footer?: React.ReactNode; childre
 }) => (
   <section>
     {title && <h3 className="mb-1.5 px-4 text-[13px] text-muted">{title}</h3>}
-    <div className="divide-y divide-line overflow-hidden rounded-[14px] bg-white/[0.06]">{children}</div>
+    <div className="divide-y divide-line overflow-hidden rounded-[14px] border border-white/[0.12] bg-[#202126]/95 shadow-[0_12px_32px_rgba(0,0,0,0.28)]">{children}</div>
     {footer && <div className="mt-1.5 px-4 text-[13px] text-muted">{footer}</div>}
   </section>
 );
